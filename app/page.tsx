@@ -1,65 +1,174 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { AnimatePresence, motion } from "framer-motion";
+import CardFlip from "@/components/CardFlip";
+
+type CardData = { id: string; frontSrc: string; backSrc: string };
+type Dir = 1 | -1;
+
+function clamp(i: number, len: number) {
+  if (i < 0) return 0;
+  if (i >= len) return len - 1;
+  return i;
+}
+
+export default function Page() {
+  const cards = useMemo<CardData[]>(
+    () => [
+      { id: "card-01", frontSrc: "/images/cards/card-01-a.png", backSrc: "/images/cards/card-01-b.png" },
+      { id: "card-02", frontSrc: "/images/cards/card-02-a.png", backSrc: "/images/cards/card-02-b.png" },
+      { id: "card-03", frontSrc: "/images/cards/card-03-a.png", backSrc: "/images/cards/card-03-b.png" },
+      { id: "card-04", frontSrc: "/images/cards/card-04-a.png", backSrc: "/images/cards/card-04-b.png" },
+      { id: "card-05", frontSrc: "/images/cards/card-05-a.png", backSrc: "/images/cards/card-05-b.png" },
+      { id: "card-06", frontSrc: "/images/cards/card-06-a.png", backSrc: "/images/cards/card-06-b.png" },
+      { id: "card-07", frontSrc: "/images/cards/card-07-a.png", backSrc: "/images/cards/card-07-b.png" },
+      { id: "card-08", frontSrc: "/images/cards/card-08-a.png", backSrc: "/images/cards/card-08-b.png" },
+      { id: "card-09", frontSrc: "/images/cards/card-09-a.png", backSrc: "/images/cards/card-09-b.png" },
+      { id: "card-10", frontSrc: "/images/cards/card-10-a.png", backSrc: "/images/cards/card-10-b.png" },
+      { id: "card-11", frontSrc: "/images/cards/card-11-a.png", backSrc: "/images/cards/card-11-b.png" },
+      { id: "card-12", frontSrc: "/images/cards/card-12-a.png", backSrc: "/images/cards/card-12-b.png" },
+      { id: "card-13", frontSrc: "/images/cards/card-13-a.png", backSrc: "/images/cards/card-13-b.png" },
+      { id: "card-14", frontSrc: "/images/cards/card-14-a.png", backSrc: "/images/cards/card-14-b.png" },
+      { id: "card-15", frontSrc: "/images/cards/card-15-a.png", backSrc: "/images/cards/card-15-b.png" },
+      { id: "card-16", frontSrc: "/images/cards/card-16-a.png", backSrc: "/images/cards/card-16-b.png" },
+      { id: "card-17", frontSrc: "/images/cards/card-17-a.png", backSrc: "/images/cards/card-17-b.png" },
+      { id: "card-18", frontSrc: "/images/cards/card-18-a.png", backSrc: "/images/cards/card-18-b.png" },
+    ],
+    []
+  );
+
+  const [index, setIndex] = useState(0);
+  const [dir, setDir] = useState<Dir>(1);
+
+  // face globale (A/B) conservée entre cartes
+  const [rot, setRot] = useState(0);
+  const flip = (fdir: 1 | -1) => setRot((r) => r + fdir * 180);
+
+  function go(d: Dir) {
+    setDir(d);
+    setIndex((i) => clamp(i + d, cards.length));
+  }
+
+  // verrouillage scroll
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverscroll = html.style.overscrollBehavior;
+    const prevBodyOverscroll = body.style.overscrollBehavior;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
+      body.style.overscrollBehavior = prevBodyOverscroll;
+    };
+  }, []);
+
+  // wheel desktop => change de carte
+  const wheelAcc = useRef(0);
+  const wheelTimer = useRef<number | null>(null);
+
+  function onWheel(e: React.WheelEvent) {
+    const dy = e.deltaY;
+    if (Math.abs(dy) < 1) return;
+
+    e.preventDefault();
+    wheelAcc.current += dy;
+
+    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
+    wheelTimer.current = window.setTimeout(() => {
+      wheelAcc.current = 0;
+    }, 220);
+
+    const TH = 110;
+    if (wheelAcc.current > TH) {
+      wheelAcc.current = 0;
+      go(1);
+    } else if (wheelAcc.current < -TH) {
+      wheelAcc.current = 0;
+      go(-1);
+    }
+  }
+
+  const current = cards[index];
+
+  // slide plus lent + ease
+  const variants = {
+    enter: (d: Dir) => ({
+      y: d === 1 ? 96 : -96,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 0 : 2,
+    }),
+    center: { y: 0, opacity: 1, scale: 1, zIndex: 1 },
+    exit: (d: Dir) => ({
+      y: d === 1 ? -56 : 56,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 2 : 0,
+    }),
+  } as const;
+
+  // ✅ Progression (0..1)
+  const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="relative min-h-dvh w-full overflow-hidden bg-black">
+      {/* Fond image */}
+      <div className="absolute inset-0 -z-10">
+        <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
+        <div className="absolute inset-0 bg-black/35" />
+      </div>
+
+      <div className="min-h-dvh p-4 flex items-center justify-center">
+        <div className="w-full max-w-sm">
+          <div className="relative h-[520px] w-full" onWheel={onWheel}>
+            <AnimatePresence initial={false} custom={dir} mode="popLayout">
+              <motion.div
+                key={current.id}
+                custom={dir}
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-0"
+              >
+                <CardFlip
+                  frontSrc={current.frontSrc}
+                  backSrc={current.backSrc}
+                  rot={rot}
+                  onFlip={flip}
+                  onPrev={() => go(-1)}
+                  onNext={() => go(1)}
+                />
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* ✅ BARRE DE PROGRESSION */}
+          <div className="mt-10 flex justify-center">
+            <div className="w-[220px] h-[7px] rounded-full bg-white/10 overflow-hidden">
+              <motion.div
+                className="h-full bg-white"
+                style={{ transformOrigin: "0% 50%" }}
+                animate={{ scaleX: progress }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              />
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
