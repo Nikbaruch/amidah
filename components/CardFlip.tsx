@@ -49,17 +49,34 @@ export default function CardFlip({
   function handleDragEnd(_: unknown, info: PanInfo) {
     const ox = info.offset.x;
     const oy = info.offset.y;
+    const vx = info.velocity.x;
+    const vy = info.velocity.y;
 
-    if (Math.abs(ox) > Math.abs(oy) && Math.abs(ox) > 50) {
+    const swipePowerX = Math.abs(ox) * Math.abs(vx);
+    const swipePowerY = Math.abs(oy) * Math.abs(vy);
+
+    const isHorizontal = Math.abs(ox) > Math.abs(oy);
+
+    // seuils (un “coup de pouce”)
+    const H = Math.abs(ox) > 45 || swipePowerX > 650;
+    const V = Math.abs(oy) > 70 || swipePowerY > 850;
+
+    // Horizontal => flip
+    if (isHorizontal && H) {
       onFlip(ox < 0 ? 1 : -1);
-    } else if (Math.abs(oy) > 80) {
-      oy < 0 ? onNext?.() : onPrev?.();
+      return;
+    }
+
+    // Vertical => change de carte
+    if (!isHorizontal && V) {
+      if (oy < 0) onNext?.(); // swipe vers le haut => suivante
+      else onPrev?.(); // swipe vers le bas => précédente
     }
   }
 
   return (
     <div className="relative h-full w-full flex items-center justify-center">
-      {/* FOND IMAGE DERRIÈRE LA CARTE */}
+      {/* FOND IMAGE derrière la carte */}
       <div className="absolute inset-0 -z-10">
         <Image
           src="/images/fond.png"
@@ -70,20 +87,9 @@ export default function CardFlip({
         />
       </div>
 
-      {/* Zone de gestes invisible */}
-      <motion.div
-        className="absolute inset-0"
-        drag
-        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-        dragElastic={0.2}
-        style={{ touchAction: "pan-x pan-y" }}
-        onDragEnd={handleDragEnd}
-        onClick={() => onFlip(1)}
-      />
-
-      {/* CARTE = IMAGE SEULE */}
+      {/* CARTE (ne doit pas capter les gestes) */}
       <div
-        className="relative"
+        className="relative pointer-events-none"
         style={{
           width: "min(92vw, 420px)",
           aspectRatio: "1080 / 1522",
@@ -146,6 +152,19 @@ export default function CardFlip({
           </div>
         </motion.div>
       </div>
+
+      {/* GESTURES LAYER (AU-DESSUS) */}
+      <motion.div
+        className="absolute inset-0 z-20"
+        style={{
+          touchAction: "none", // crucial sur mobile: capter vertical + horizontal
+        }}
+        drag
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={0.2}
+        onDragEnd={handleDragEnd}
+        onClick={() => onFlip(1)}
+      />
     </div>
   );
 }
