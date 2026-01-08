@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -51,7 +52,7 @@ export default function Page() {
     setIndex((i) => clamp(i + d, cards.length));
   }
 
-  // verrouillage scroll
+  // verrouillage scroll (expérience app)
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -102,6 +103,27 @@ export default function Page() {
 
   const current = cards[index];
 
+  // ✅ précharge la carte suivante et précédente (A+B) pour réduire le chargement
+  useEffect(() => {
+    const preload = (src: string) => {
+      const img = new window.Image();
+      img.decoding = "async";
+      img.src = src;
+    };
+
+    const next = cards[index + 1];
+    const prev = cards[index - 1];
+
+    if (next) {
+      preload(next.frontSrc);
+      preload(next.backSrc);
+    }
+    if (prev) {
+      preload(prev.frontSrc);
+      preload(prev.backSrc);
+    }
+  }, [index, cards]);
+
   // slide plus lent + ease
   const variants = {
     enter: (d: Dir) => ({
@@ -119,12 +141,12 @@ export default function Page() {
     }),
   } as const;
 
-  // ✅ Progression (0..1)
+  // Progression 0..1
   const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
 
   return (
     <main className="relative min-h-dvh w-full overflow-hidden bg-black">
-      {/* Fond image */}
+      {/* Fond page */}
       <div className="absolute inset-0 -z-10">
         <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
         <div className="absolute inset-0 bg-black/35" />
@@ -151,14 +173,15 @@ export default function Page() {
                   onFlip={flip}
                   onPrev={() => go(-1)}
                   onNext={() => go(1)}
+                  priority
                 />
               </motion.div>
             </AnimatePresence>
           </div>
 
-          {/* ✅ BARRE DE PROGRESSION */}
-          <div className="mt-10 flex justify-center">
-            <div className="w-[220px] h-[7px] rounded-full bg-white/10 overflow-hidden">
+          {/* Barre de progression */}
+          <div className="mt-4 flex justify-center">
+            <div className="w-[220px] h-[3px] rounded-full bg-white/25 overflow-hidden">
               <motion.div
                 className="h-full bg-white"
                 style={{ transformOrigin: "0% 50%" }}

@@ -1,3 +1,4 @@
+// components/CardFlip.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -9,10 +10,16 @@ type FlipDir = 1 | -1;
 export type CardFlipProps = {
   frontSrc: string;
   backSrc: string;
+
+  // rotation cumulative (contrôlée par le parent)
   rot: number;
   onFlip: (dir: FlipDir) => void;
+
   onPrev?: () => void;
   onNext?: () => void;
+
+  // ✅ pour mettre priority uniquement sur la carte affichée
+  priority?: boolean;
 };
 
 export default function CardFlip({
@@ -22,6 +29,7 @@ export default function CardFlip({
   onFlip,
   onPrev,
   onNext,
+  priority = false,
 }: CardFlipProps) {
   // Clavier
   useEffect(() => {
@@ -57,26 +65,24 @@ export default function CardFlip({
 
     const isHorizontal = Math.abs(ox) > Math.abs(oy);
 
-    // seuils (un “coup de pouce”)
+    // seuils “coup de pouce”
     const H = Math.abs(ox) > 45 || swipePowerX > 650;
     const V = Math.abs(oy) > 70 || swipePowerY > 850;
 
-    // Horizontal => flip
     if (isHorizontal && H) {
       onFlip(ox < 0 ? 1 : -1);
       return;
     }
 
-    // Vertical => change de carte
     if (!isHorizontal && V) {
-      if (oy < 0) onNext?.(); // swipe vers le haut => suivante
-      else onPrev?.(); // swipe vers le bas => précédente
+      if (oy < 0) onNext?.();
+      else onPrev?.();
     }
   }
 
   return (
     <div className="relative h-full w-full flex items-center justify-center">
-      {/* FOND IMAGE derrière la carte */}
+      {/* Fond derrière la carte */}
       <div className="absolute inset-0 -z-10">
         <Image
           src="/images/fond.png"
@@ -87,7 +93,7 @@ export default function CardFlip({
         />
       </div>
 
-      {/* CARTE (ne doit pas capter les gestes) */}
+      {/* Carte (ne capte pas les gestes) */}
       <div
         className="relative pointer-events-none"
         style={{
@@ -99,7 +105,7 @@ export default function CardFlip({
       >
         <motion.div
           className="absolute inset-0"
-          initial={false}
+          initial={false} // évite un flip au montage lors du changement de carte
           animate={{ rotateY: rot }}
           transition={{
             type: "spring",
@@ -126,7 +132,7 @@ export default function CardFlip({
               src={frontSrc}
               alt="Face A"
               fill
-              priority
+              priority={priority}
               className="object-contain"
               sizes="(max-width: 768px) 92vw, 420px"
             />
@@ -145,7 +151,7 @@ export default function CardFlip({
               src={backSrc}
               alt="Face B"
               fill
-              priority
+              priority={priority}
               className="object-contain"
               sizes="(max-width: 768px) 92vw, 420px"
             />
@@ -153,12 +159,10 @@ export default function CardFlip({
         </motion.div>
       </div>
 
-      {/* GESTURES LAYER (AU-DESSUS) */}
+      {/* Layer gestes au-dessus (mobile) */}
       <motion.div
         className="absolute inset-0 z-20"
-        style={{
-          touchAction: "none", // crucial sur mobile: capter vertical + horizontal
-        }}
+        style={{ touchAction: "none" }} // crucial pour swipe vertical + horizontal sur mobile
         drag
         dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
         dragElastic={0.2}
