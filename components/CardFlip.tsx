@@ -1,4 +1,3 @@
-// components/CardFlip.tsx
 "use client";
 
 import { useEffect } from "react";
@@ -11,14 +10,10 @@ export type CardFlipProps = {
   frontSrc: string;
   backSrc: string;
 
-  // rotation cumulative (contrôlée par le parent)
   rot: number;
   onFlip: (dir: FlipDir) => void;
 
-  onPrev?: () => void;
-  onNext?: () => void;
-
-  // ✅ pour mettre priority uniquement sur la carte affichée
+  // optionnel : pour mettre priority sur la carte affichée
   priority?: boolean;
 };
 
@@ -27,11 +22,9 @@ export default function CardFlip({
   backSrc,
   rot,
   onFlip,
-  onPrev,
-  onNext,
   priority = false,
 }: CardFlipProps) {
-  // Clavier
+  // Clavier: ←/→ flip
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
@@ -43,41 +36,25 @@ export default function CardFlip({
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         onFlip(-1);
-      } else if (e.key === "ArrowUp") {
-        onPrev?.();
-      } else if (e.key === "ArrowDown") {
-        onNext?.();
       }
     };
 
     window.addEventListener("keydown", onKeyDown, { passive: false });
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onFlip, onPrev, onNext]);
+  }, [onFlip]);
 
   function handleDragEnd(_: unknown, info: PanInfo) {
     const ox = info.offset.x;
     const oy = info.offset.y;
     const vx = info.velocity.x;
-    const vy = info.velocity.y;
+
+    // On ne flip que si le geste est clairement horizontal
+    if (Math.abs(ox) <= Math.abs(oy)) return;
 
     const swipePowerX = Math.abs(ox) * Math.abs(vx);
-    const swipePowerY = Math.abs(oy) * Math.abs(vy);
-
-    const isHorizontal = Math.abs(ox) > Math.abs(oy);
-
-    // seuils “coup de pouce”
     const H = Math.abs(ox) > 45 || swipePowerX > 650;
-    const V = Math.abs(oy) > 70 || swipePowerY > 850;
 
-    if (isHorizontal && H) {
-      onFlip(ox < 0 ? 1 : -1);
-      return;
-    }
-
-    if (!isHorizontal && V) {
-      if (oy < 0) onNext?.();
-      else onPrev?.();
-    }
+    if (H) onFlip(ox < 0 ? 1 : -1);
   }
 
   return (
@@ -105,14 +82,9 @@ export default function CardFlip({
       >
         <motion.div
           className="absolute inset-0"
-          initial={false} // évite un flip au montage lors du changement de carte
+          initial={false} // pas d’animation au montage
           animate={{ rotateY: rot }}
-          transition={{
-            type: "spring",
-            stiffness: 900,
-            damping: 55,
-            mass: 0.6,
-          }}
+          transition={{ type: "spring", stiffness: 900, damping: 55, mass: 0.6 }}
           style={{
             transformStyle: "preserve-3d",
             WebkitTransformStyle: "preserve-3d",
@@ -159,12 +131,12 @@ export default function CardFlip({
         </motion.div>
       </div>
 
-      {/* Layer gestes au-dessus (mobile) */}
+      {/* Layer gestes: uniquement horizontal pour flip + clic */}
       <motion.div
         className="absolute inset-0 z-20"
-        style={{ touchAction: "none" }} // crucial pour swipe vertical + horizontal sur mobile
-        drag
-        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        style={{ touchAction: "none" }}
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
         dragElastic={0.2}
         onDragEnd={handleDragEnd}
         onClick={() => onFlip(1)}

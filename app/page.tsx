@@ -1,13 +1,11 @@
-// app/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion, useMotionValue, animate } from "framer-motion";
 import CardFlip from "@/components/CardFlip";
 
 type CardData = { id: string; frontSrc: string; backSrc: string };
-type Dir = 1 | -1;
 
 function clamp(i: number, len: number) {
   if (i < 0) return 0;
@@ -41,18 +39,12 @@ export default function Page() {
   );
 
   const [index, setIndex] = useState(0);
-  const [dir, setDir] = useState<Dir>(1);
 
-  // face globale (A/B) conservée entre cartes
+  // Face globale (A/B) conservée entre cartes
   const [rot, setRot] = useState(0);
-  const flip = (fdir: 1 | -1) => setRot((r) => r + fdir * 180);
+  const flip = (d: 1 | -1) => setRot((r) => r + d * 180);
 
-  function go(d: Dir) {
-    setDir(d);
-    setIndex((i) => clamp(i + d, cards.length));
-  }
-
-  // verrouillage scroll (expérience app)
+  // Verrouillage scroll (expérience app)
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -75,45 +67,15 @@ export default function Page() {
     };
   }, []);
 
-  // wheel desktop => change de carte
-  const wheelAcc = useRef(0);
-  const wheelTimer = useRef<number | null>(null);
-
-  function onWheel(e: React.WheelEvent) {
-    const dy = e.deltaY;
-    if (Math.abs(dy) < 1) return;
-
-    e.preventDefault();
-    wheelAcc.current += dy;
-
-    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
-    wheelTimer.current = window.setTimeout(() => {
-      wheelAcc.current = 0;
-    }, 220);
-
-    const TH = 110;
-    if (wheelAcc.current > TH) {
-      wheelAcc.current = 0;
-      go(1);
-    } else if (wheelAcc.current < -TH) {
-      wheelAcc.current = 0;
-      go(-1);
-    }
-  }
-
-  const current = cards[index];
-
-  // ✅ précharge la carte suivante et précédente (A+B) pour réduire le chargement
+  // Précharge next/prev (A+B)
   useEffect(() => {
     const preload = (src: string) => {
       const img = new window.Image();
       img.decoding = "async";
       img.src = src;
     };
-
     const next = cards[index + 1];
     const prev = cards[index - 1];
-
     if (next) {
       preload(next.frontSrc);
       preload(next.backSrc);
@@ -124,25 +86,72 @@ export default function Page() {
     }
   }, [index, cards]);
 
-  // slide plus lent + ease
-  const variants = {
-    enter: (d: Dir) => ({
-      y: d === 1 ? 96 : -96,
-      opacity: 0,
-      scale: 0.992,
-      zIndex: d === 1 ? 0 : 2,
-    }),
-    center: { y: 0, opacity: 1, scale: 1, zIndex: 1 },
-    exit: (d: Dir) => ({
-      y: d === 1 ? -56 : 56,
-      opacity: 0,
-      scale: 0.992,
-      zIndex: d === 1 ? 2 : 0,
-    }),
-  } as const;
+  // --- SWAP INTERACTIF ---
+  const y = useMotionValue(0);
+  const [dragging, setDragging] = useState(false);
 
-  // Progression 0..1
+  // Mesure hauteur de la zone (pour “snap” pile)
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const [H, setH] = useState(520);
+
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    const el = sceneRef.current;
+
+    const ro = new ResizeObserver(() => {
+      const rect = el.getBoundingClientRect();
+      setH(Math.round(rect.height));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const hasPrev = index > 0;
+  const hasNext = index < cards.length - 1;
+
+  const current = cards[index];
+  const prev = hasPrev ? cards[index - 1] : null;
+  const next = hasNext ? cards[index + 1] : null;
+
+  // Progress bar
   const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
+
+  async function snapTo(target: "next" | "prev" | "center") {
+    if (target === "center") {
+      await animate(y, 0, { duration: 0.35, ease: [0.22, 1, 0.36, 1] }).finished;
+      return;
+    }
+
+    const to = target === "next" ? -H : H;
+
+    await animate(y, to, { duration: 0.28, ease: [0.22, 1, 0.36, 1] }).finished;
+
+    setIndex((i) => clamp(i + (target === "next" ? 1 : -1), cards.length));
+    y.set(0);
+  }
+
+  // Wheel desktop -> swap (sans drag)
+  const wheelAcc = useRef(0);
+  const wheelTimer = useRef<number | null>(null);
+
+  function onWheel(e: React.WheelEvent) {
+    const dy = e.deltaY;
+    if (Math.abs(dy) < 1) return;
+    e.preventDefault();
+
+    wheelAcc.current += dy;
+    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
+    wheelTimer.current = window.setTimeout(() => (wheelAcc.current = 0), 180);
+
+    const TH = 90;
+    if (wheelAcc.current > TH && hasNext) {
+      wheelAcc.current = 0;
+      snapTo("next");
+    } else if (wheelAcc.current < -TH && hasPrev) {
+      wheelAcc.current = 0;
+      snapTo("prev");
+    }
+  }
 
   return (
     <main className="relative min-h-dvh w-full overflow-hidden bg-black">
@@ -154,29 +163,101 @@ export default function Page() {
 
       <div className="min-h-dvh p-4 flex items-center justify-center">
         <div className="w-full max-w-sm">
-          <div className="relative h-[520px] w-full" onWheel={onWheel}>
-            <AnimatePresence initial={false} custom={dir} mode="popLayout">
+          {/* SCENE */}
+          <div
+            ref={sceneRef}
+            className="relative h-[520px] w-full overflow-hidden"
+            onWheel={onWheel}
+          >
+            {/* CARTE PRÉCÉDENTE (au-dessus) */}
+            {prev && (
               <motion.div
-                key={current.id}
-                custom={dir}
-                variants={variants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
                 className="absolute inset-0"
+                style={{
+                  y: y.get() - H, // reste au-dessus et suit le drag
+                  pointerEvents: "none",
+                }}
               >
                 <CardFlip
-                  frontSrc={current.frontSrc}
-                  backSrc={current.backSrc}
+                  frontSrc={prev.frontSrc}
+                  backSrc={prev.backSrc}
                   rot={rot}
                   onFlip={flip}
-                  onPrev={() => go(-1)}
-                  onNext={() => go(1)}
-                  priority
                 />
               </motion.div>
-            </AnimatePresence>
+            )}
+
+            {/* CARTE COURANTE (celle que tu pousses) */}
+            <motion.div
+              className="absolute inset-0"
+              style={{ y }}
+            >
+              <CardFlip
+                frontSrc={current.frontSrc}
+                backSrc={current.backSrc}
+                rot={rot}
+                onFlip={flip}
+                priority
+              />
+            </motion.div>
+
+            {/* CARTE SUIVANTE (en dessous) */}
+            {next && (
+              <motion.div
+                className="absolute inset-0"
+                style={{
+                  y: y.get() + H, // reste en dessous et suit le drag
+                  pointerEvents: "none",
+                }}
+              >
+                <CardFlip
+                  frontSrc={next.frontSrc}
+                  backSrc={next.backSrc}
+                  rot={rot}
+                  onFlip={flip}
+                />
+              </motion.div>
+            )}
+
+            {/* LAYER DRAG VERTICAL: tu “pousses” la carte */}
+            <motion.div
+              className="absolute inset-0 z-30"
+              style={{ touchAction: "none" }}
+              drag="y"
+              dragConstraints={{ top: 0, bottom: 0 }}
+              dragElastic={0.18}
+              onDragStart={() => setDragging(true)}
+              onDrag={(e, info) => {
+                // Limite si on est au début/fin
+                const ny = info.offset.y;
+                if (!hasPrev && ny > 0) return;
+                if (!hasNext && ny < 0) return;
+                y.set(ny);
+              }}
+              onDragEnd={async (_e, info) => {
+                setDragging(false);
+
+                const offsetY = info.offset.y;
+                const velocityY = info.velocity.y;
+
+                const isSwipeUp = offsetY < 0;
+                const isSwipeDown = offsetY > 0;
+
+                const distOK = Math.abs(offsetY) > Math.min(140, H * 0.22);
+                const veloOK = Math.abs(velocityY) > 850;
+
+                if ((distOK || veloOK) && isSwipeUp && hasNext) {
+                  await snapTo("next");
+                  return;
+                }
+                if ((distOK || veloOK) && isSwipeDown && hasPrev) {
+                  await snapTo("prev");
+                  return;
+                }
+
+                await snapTo("center");
+              }}
+            />
           </div>
 
           {/* Barre de progression */}
