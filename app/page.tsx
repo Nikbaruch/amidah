@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { motion, useMotionValue, animate } from "framer-motion";
+import {
+  motion,
+  useMotionValue,
+  useTransform,
+  useMotionValueEvent,
+  animate,
+  type PanInfo,
+} from "framer-motion";
 import CardFlip from "@/components/CardFlip";
 
 type CardData = { id: string; frontSrc: string; backSrc: string };
@@ -39,12 +46,14 @@ export default function Page() {
   );
 
   const [index, setIndex] = useState(0);
+  const hasPrev = index > 0;
+  const hasNext = index < cards.length - 1;
 
-  // Face globale (A/B) conservée entre cartes
+  // Face globale conservée entre cartes (A/B)
   const [rot, setRot] = useState(0);
   const flip = (d: 1 | -1) => setRot((r) => r + d * 180);
 
-  // Verrouillage scroll (expérience app)
+  // Expérience “app”: pas de scroll page
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -67,7 +76,7 @@ export default function Page() {
     };
   }, []);
 
-  // Précharge next/prev (A+B)
+  // Préchargement next/prev (A+B)
   useEffect(() => {
     const preload = (src: string) => {
       const img = new window.Image();
@@ -86,35 +95,46 @@ export default function Page() {
     }
   }, [index, cards]);
 
-  // --- SWAP INTERACTIF ---
-  const y = useMotionValue(0);
-  const [dragging, setDragging] = useState(false);
-
-  // Mesure hauteur de la zone (pour “snap” pile)
+  // Mesure hauteur de scène
   const sceneRef = useRef<HTMLDivElement | null>(null);
   const [H, setH] = useState(520);
-
   useEffect(() => {
     if (!sceneRef.current) return;
     const el = sceneRef.current;
-
-    const ro = new ResizeObserver(() => {
-      const rect = el.getBoundingClientRect();
-      setH(Math.round(rect.height));
-    });
+    const ro = new ResizeObserver(() => setH(Math.round(el.getBoundingClientRect().height)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const hasPrev = index > 0;
-  const hasNext = index < cards.length - 1;
+  // Swap “poussé”
+  const y = useMotionValue(0);
+
+  // GAP = garantit qu’on ne voit JAMAIS une autre carte au repos
+  const GAP = 140;
+  const OFF = H + GAP;
+
+  // Positions réactives (important: pas de y.get())
+  const prevY = useTransform(y, (v) => v - OFF);
+  const nextY = useTransform(y, (v) => v + OFF);
+
+  // Un petit fade-in uniquement quand on commence à tirer
+  const absY = useTransform(y, (v) => Math.abs(v));
+  const neighborOpacity = useTransform(absY, [0, 18, 80], [0, 0, 1]); // invisible au repos
+
+  // Direction pour la superposition (qui passe au-dessus)
+  const [dragDir, setDragDir] = useState<"next" | "prev" | null>(null);
+  useMotionValueEvent(y, "change", (v) => {
+    if (v < -2) setDragDir("next");
+    else if (v > 2) setDragDir("prev");
+    else setDragDir(null);
+  });
+
+  // Lock d’axe: horizontal = flip, vertical = swap
+  const axisLock = useRef<"x" | "y" | null>(null);
 
   const current = cards[index];
   const prev = hasPrev ? cards[index - 1] : null;
   const next = hasNext ? cards[index + 1] : null;
-
-  // Progress bar
-  const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
 
   async function snapTo(target: "next" | "prev" | "center") {
     if (target === "center") {
@@ -122,26 +142,77 @@ export default function Page() {
       return;
     }
 
-    const to = target === "next" ? -H : H;
-
-    await animate(y, to, { duration: 0.28, ease: [0.22, 1, 0.36, 1] }).finished;
+    const to = target === "next" ? -OFF : OFF;
+    await animate(y, to, { duration: 0.30, ease: [0.22, 1, 0.36, 1] }).finished;
 
     setIndex((i) => clamp(i + (target === "next" ? 1 : -1), cards.length));
     y.set(0);
   }
 
-  // Wheel desktop -> swap (sans drag)
+  function onDragStart() {
+    axisLock.current = null;
+  }
+
+  function onDrag(_e: unknown, info: PanInfo) {
+    const ox = info.offset.x;
+    const oy = info.offset.y;
+
+    if (!axisLock.current) {
+      const ax = Math.abs(ox);
+      const ay = Math.abs(oy);
+      if (ax > 8 || ay > 8) axisLock.current = ax > ay ? "x" : "y";
+    }
+
+    if (axisLock.current === "y") {
+      if (!hasPrev && oy > 0) return;
+      if (!hasNext && oy < 0) return;
+      y.set(oy);
+    }
+  }
+
+  async function onDragEnd(_e: unknown, info: PanInfo) {
+    const ox = info.offset.x;
+    const oy = info.offset.y;
+    const vx = info.velocity.x;
+    const vy = info.velocity.y;
+
+    // Horizontal => flip
+    if (axisLock.current === "x") {
+      const swipePowerX = Math.abs(ox) * Math.abs(vx);
+      const ok = Math.abs(ox) > 45 || swipePowerX > 650;
+      if (ok) flip(ox < 0 ? 1 : -1);
+      return;
+    }
+
+    // Vertical => swap
+    const distOK = Math.abs(oy) > Math.min(150, H * 0.24);
+    const veloOK = Math.abs(vy) > 850;
+
+    if ((distOK || veloOK) && oy < 0 && hasNext) {
+      await snapTo("next");
+      return;
+    }
+    if ((distOK || veloOK) && oy > 0 && hasPrev) {
+      await snapTo("prev");
+      return;
+    }
+
+    await snapTo("center");
+  }
+
+  // Desktop: wheel/trackpad => change de carte
   const wheelAcc = useRef(0);
   const wheelTimer = useRef<number | null>(null);
 
   function onWheel(e: React.WheelEvent) {
     const dy = e.deltaY;
     if (Math.abs(dy) < 1) return;
-    e.preventDefault();
 
+    e.preventDefault();
     wheelAcc.current += dy;
+
     if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
-    wheelTimer.current = window.setTimeout(() => (wheelAcc.current = 0), 180);
+    wheelTimer.current = window.setTimeout(() => (wheelAcc.current = 0), 170);
 
     const TH = 90;
     if (wheelAcc.current > TH && hasNext) {
@@ -153,8 +224,40 @@ export default function Page() {
     }
   }
 
+  // Clavier: ←/→ flip ; ↑/↓ swap
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        flip(1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        flip(-1);
+      } else if (e.key === "ArrowUp" && hasPrev) {
+        e.preventDefault();
+        snapTo("prev");
+      } else if (e.key === "ArrowDown" && hasNext) {
+        e.preventDefault();
+        snapTo("next");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hasPrev, hasNext, H]);
+
+  // Progress bar 0..1
+  const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
+
+  // Superposition: celle vers laquelle on va passe au-dessus
+  const zPrev = dragDir === "prev" ? 3 : 1;
+  const zNext = dragDir === "next" ? 3 : 1;
+
   return (
-    <main className="relative min-h-dvh w-full overflow-hidden bg-black">
+    <main className="relative min-h-dvh w-full bg-black">
       {/* Fond page */}
       <div className="absolute inset-0 -z-10">
         <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
@@ -163,35 +266,19 @@ export default function Page() {
 
       <div className="min-h-dvh p-4 flex items-center justify-center">
         <div className="w-full max-w-sm">
-          {/* SCENE */}
-          <div
-            ref={sceneRef}
-            className="relative h-[520px] w-full overflow-hidden"
-            onWheel={onWheel}
-          >
-            {/* CARTE PRÉCÉDENTE (au-dessus) */}
+          <div ref={sceneRef} className="relative h-[520px] w-full" onWheel={onWheel}>
+            {/* PREV (hors écran au repos) */}
             {prev && (
               <motion.div
-                className="absolute inset-0"
-                style={{
-                  y: y.get() - H, // reste au-dessus et suit le drag
-                  pointerEvents: "none",
-                }}
+                className="absolute inset-0 pointer-events-none"
+                style={{ y: prevY, opacity: neighborOpacity, zIndex: zPrev }}
               >
-                <CardFlip
-                  frontSrc={prev.frontSrc}
-                  backSrc={prev.backSrc}
-                  rot={rot}
-                  onFlip={flip}
-                />
+                <CardFlip frontSrc={prev.frontSrc} backSrc={prev.backSrc} rot={rot} onFlip={flip} />
               </motion.div>
             )}
 
-            {/* CARTE COURANTE (celle que tu pousses) */}
-            <motion.div
-              className="absolute inset-0"
-              style={{ y }}
-            >
+            {/* CURRENT */}
+            <motion.div className="absolute inset-0" style={{ y, zIndex: 2 }}>
               <CardFlip
                 frontSrc={current.frontSrc}
                 backSrc={current.backSrc}
@@ -201,62 +288,27 @@ export default function Page() {
               />
             </motion.div>
 
-            {/* CARTE SUIVANTE (en dessous) */}
+            {/* NEXT (hors écran au repos) */}
             {next && (
               <motion.div
-                className="absolute inset-0"
-                style={{
-                  y: y.get() + H, // reste en dessous et suit le drag
-                  pointerEvents: "none",
-                }}
+                className="absolute inset-0 pointer-events-none"
+                style={{ y: nextY, opacity: neighborOpacity, zIndex: zNext }}
               >
-                <CardFlip
-                  frontSrc={next.frontSrc}
-                  backSrc={next.backSrc}
-                  rot={rot}
-                  onFlip={flip}
-                />
+                <CardFlip frontSrc={next.frontSrc} backSrc={next.backSrc} rot={rot} onFlip={flip} />
               </motion.div>
             )}
 
-            {/* LAYER DRAG VERTICAL: tu “pousses” la carte */}
+            {/* Gesture layer unique: vertical=swap / horizontal=flip */}
             <motion.div
               className="absolute inset-0 z-30"
               style={{ touchAction: "none" }}
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
+              drag
+              dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
               dragElastic={0.18}
-              onDragStart={() => setDragging(true)}
-              onDrag={(e, info) => {
-                // Limite si on est au début/fin
-                const ny = info.offset.y;
-                if (!hasPrev && ny > 0) return;
-                if (!hasNext && ny < 0) return;
-                y.set(ny);
-              }}
-              onDragEnd={async (_e, info) => {
-                setDragging(false);
-
-                const offsetY = info.offset.y;
-                const velocityY = info.velocity.y;
-
-                const isSwipeUp = offsetY < 0;
-                const isSwipeDown = offsetY > 0;
-
-                const distOK = Math.abs(offsetY) > Math.min(140, H * 0.22);
-                const veloOK = Math.abs(velocityY) > 850;
-
-                if ((distOK || veloOK) && isSwipeUp && hasNext) {
-                  await snapTo("next");
-                  return;
-                }
-                if ((distOK || veloOK) && isSwipeDown && hasPrev) {
-                  await snapTo("prev");
-                  return;
-                }
-
-                await snapTo("center");
-              }}
+              onDragStart={onDragStart}
+              onDrag={onDrag}
+              onDragEnd={onDragEnd}
+              onClick={() => flip(1)}
             />
           </div>
 
