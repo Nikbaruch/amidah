@@ -20,11 +20,13 @@ export default function CardFlip({
   priority = false,
 }: CardFlipProps) {
   return (
-    <div className="relative h-full w-full flex items-center justify-center">
+    <div className="relative h-full w-full flex items-center justify-center p-2">
       <div
-        className="relative pointer-events-none rounded-2xl overflow-hidden shadow-2xl"
+        className="relative pointer-events-none rounded-xl overflow-hidden shadow-xl bg-white"
         style={{
-          width: "min(92vw, 420px)",
+          width: "100%",
+          height: "100%",
+          maxWidth: "420px",
           aspectRatio: "1080 / 1522",
           perspective: "1200px",
           WebkitPerspective: "1200px",
@@ -43,7 +45,7 @@ export default function CardFlip({
         >
           {/* FACE A */}
           <div
-            className="absolute inset-0 bg-white"
+            className="absolute inset-0"
             style={{
               backfaceVisibility: "hidden",
               WebkitBackfaceVisibility: "hidden",
@@ -55,14 +57,14 @@ export default function CardFlip({
               alt="Face A"
               fill
               priority={priority}
-              className="object-cover"
+              className="object-contain"
               sizes="(max-width: 768px) 92vw, 420px"
             />
           </div>
 
           {/* FACE B */}
           <div
-            className="absolute inset-0 bg-white"
+            className="absolute inset-0"
             style={{
               backfaceVisibility: "hidden",
               WebkitBackfaceVisibility: "hidden",
@@ -74,7 +76,7 @@ export default function CardFlip({
               alt="Face B"
               fill
               priority={priority}
-              className="object-cover"
+              className="object-contain"
               sizes="(max-width: 768px) 92vw, 420px"
             />
           </div>
