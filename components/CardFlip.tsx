@@ -3,13 +3,10 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 
-type FlipDir = 1 | -1;
-
-export type CardFlipProps = {
+type CardFlipProps = {
   frontSrc: string;
   backSrc: string;
   rot: number;
-  onFlip: (dir: FlipDir) => void;
   priority?: boolean;
 };
 
@@ -20,64 +17,47 @@ export default function CardFlip({
   priority = false,
 }: CardFlipProps) {
   return (
-    <div className="relative h-full w-full flex items-center justify-center p-2">
+    <div className="h-full w-full flex items-center justify-center p-6">
       <div
-        className="relative pointer-events-none rounded-xl overflow-hidden shadow-xl bg-white"
-        style={{
-          width: "100%",
-          height: "100%",
-          maxWidth: "420px",
-          aspectRatio: "1080 / 1522",
-          perspective: "1200px",
-          WebkitPerspective: "1200px",
-        }}
+        className="relative w-full max-w-[420px] aspect-[1080/1522]"
+        style={{ perspective: "1500px" }}
       >
         <motion.div
-          className="absolute inset-0"
-          initial={false}
+          className="w-full h-full relative"
           animate={{ rotateY: rot }}
-          transition={{ type: "spring", stiffness: 400, damping: 40 }}
-          style={{
-            transformStyle: "preserve-3d",
-            WebkitTransformStyle: "preserve-3d",
-            willChange: "transform",
-          }}
+          transition={{ type: "spring", stiffness: 260, damping: 20 }}
+          style={{ transformStyle: "preserve-3d" }}
         >
-          {/* FACE A */}
+          {/* FACE FRONT */}
           <div
-            className="absolute inset-0"
-            style={{
-              backfaceVisibility: "hidden",
-              WebkitBackfaceVisibility: "hidden",
-              transform: "translateZ(1px)",
-            }}
+            className="absolute inset-0 rounded-2xl overflow-hidden shadow-xl bg-white"
+            style={{ backfaceVisibility: "hidden" }}
           >
             <Image
               src={frontSrc}
-              alt="Face A"
+              alt="prayer front"
               fill
+              className="object-cover"
               priority={priority}
-              className="object-contain"
-              sizes="(max-width: 768px) 92vw, 420px"
+              sizes="(max-width: 768px) 100vw, 420px"
             />
           </div>
 
-          {/* FACE B */}
+          {/* FACE BACK */}
           <div
-            className="absolute inset-0"
-            style={{
-              backfaceVisibility: "hidden",
-              WebkitBackfaceVisibility: "hidden",
-              transform: "rotateY(180deg) translateZ(1px)",
+            className="absolute inset-0 rounded-2xl overflow-hidden shadow-xl bg-white"
+            style={{ 
+              backfaceVisibility: "hidden", 
+              transform: "rotateY(180deg)" 
             }}
           >
             <Image
               src={backSrc}
-              alt="Face B"
+              alt="prayer back"
               fill
+              className="object-cover"
               priority={priority}
-              className="object-contain"
-              sizes="(max-width: 768px) 92vw, 420px"
+              sizes="(max-width: 768px) 100vw, 420px"
             />
           </div>
         </motion.div>
