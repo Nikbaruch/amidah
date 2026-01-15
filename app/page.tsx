@@ -1,13 +1,18 @@
-// app/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AnimatePresence, motion } from "framer-motion";
+import {
+  motion,
+  useMotionValue,
+  useTransform,
+  useMotionValueEvent,
+  animate,
+  type PanInfo,
+} from "framer-motion";
 import CardFlip from "@/components/CardFlip";
 
 type CardData = { id: string; frontSrc: string; backSrc: string };
-type Dir = 1 | -1;
 
 function clamp(i: number, len: number) {
   if (i < 0) return 0;
@@ -41,158 +46,165 @@ export default function Page() {
   );
 
   const [index, setIndex] = useState(0);
-  const [dir, setDir] = useState<Dir>(1);
+  const hasPrev = index > 0;
+  const hasNext = index < cards.length - 1;
 
-  // face globale (A/B) conservée entre cartes
   const [rot, setRot] = useState(0);
-  const flip = (fdir: 1 | -1) => setRot((r) => r + fdir * 180);
+  const flip = (d: 1 | -1) => setRot((r) => r + d * 180);
 
-  function go(d: Dir) {
-    setDir(d);
-    setIndex((i) => clamp(i + d, cards.length));
-  }
-
-  // verrouillage scroll (expérience app)
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
-
-    const prevHtmlOverflow = html.style.overflow;
-    const prevBodyOverflow = body.style.overflow;
-    const prevHtmlOverscroll = html.style.overscrollBehavior;
-    const prevBodyOverscroll = body.style.overscrollBehavior;
-
     html.style.overflow = "hidden";
     body.style.overflow = "hidden";
     html.style.overscrollBehavior = "none";
     body.style.overscrollBehavior = "none";
-
-    return () => {
-      html.style.overflow = prevHtmlOverflow;
-      body.style.overflow = prevBodyOverflow;
-      html.style.overscrollBehavior = prevHtmlOverscroll;
-      body.style.overscrollBehavior = prevBodyOverscroll;
-    };
   }, []);
 
-  // wheel desktop => change de carte
-  const wheelAcc = useRef(0);
-  const wheelTimer = useRef<number | null>(null);
+  const sceneRef = useRef<HTMLDivElement | null>(null);
+  const [H, setH] = useState(520);
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    const el = sceneRef.current;
+    const ro = new ResizeObserver(() => setH(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
-  function onWheel(e: React.WheelEvent) {
-    const dy = e.deltaY;
-    if (Math.abs(dy) < 1) return;
+  const y = useMotionValue(0);
 
-    e.preventDefault();
-    wheelAcc.current += dy;
+  // Pour l'effet d'empilement : 
+  // Si on scrolle vers le haut (y < 0), la carte actuelle ne bouge pas (0).
+  // Si on scrolle vers le bas (y > 0), la carte actuelle descend pour révéler celle du dessous.
+  const currentY = useTransform(y, (v) => (v < 0 ? 0 : v));
 
-    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
-    wheelTimer.current = window.setTimeout(() => {
-      wheelAcc.current = 0;
-    }, 220);
+  // La carte suivante (Next) part de H et monte vers 0 quand on tire vers le haut.
+  const nextY = useTransform(y, (v) => (v < 0 ? H + v : H));
 
-    const TH = 110;
-    if (wheelAcc.current > TH) {
-      wheelAcc.current = 0;
-      go(1);
-    } else if (wheelAcc.current < -TH) {
-      wheelAcc.current = 0;
-      go(-1);
+  // La carte précédente (Prev) est déjà à 0, sous la carte actuelle. 
+  // Elle ne bouge pas, c'est la carte actuelle qui s'écarte.
+  const prevY = useTransform(y, (v) => 0);
+
+  // Opacité : On ne voit la carte suivante/précédente QUE si on commence à draguer
+  const neighborOpacity = useTransform(y, (v) => (v === 0 ? 0 : 1));
+
+  const [dragDir, setDragDir] = useState<"next" | "prev" | null>(null);
+  useMotionValueEvent(y, "change", (v) => {
+    if (v < -1) setDragDir("next");
+    else if (v > 1) setDragDir("prev");
+    else setDragDir(null);
+  });
+
+  const axisLock = useRef<"x" | "y" | null>(null);
+  const current = cards[index];
+  const prev = hasPrev ? cards[index - 1] : null;
+  const next = hasNext ? cards[index + 1] : null;
+
+  async function snapTo(target: "next" | "prev" | "center") {
+    if (target === "center") {
+      await animate(y, 0, { duration: 0.3, ease: "easeOut" }).finished;
+      return;
+    }
+    const to = target === "next" ? -H : H;
+    await animate(y, to, { duration: 0.3, ease: "easeOut" }).finished;
+    setIndex((i) => clamp(i + (target === "next" ? 1 : -1), cards.length));
+    y.set(0);
+  }
+
+  function onDrag(_e: unknown, info: PanInfo) {
+    const ox = info.offset.x;
+    const oy = info.offset.y;
+    if (!axisLock.current) {
+      const ax = Math.abs(ox);
+      const ay = Math.abs(oy);
+      if (ax > 5 || ay > 5) axisLock.current = ax > ay ? "x" : "y";
+    }
+    if (axisLock.current === "y") {
+      if (!hasPrev && oy > 0) return;
+      if (!hasNext && oy < 0) return;
+      y.set(oy);
     }
   }
 
-  const current = cards[index];
+  async function onDragEnd(_e: unknown, info: PanInfo) {
+    const oy = info.offset.y;
+    const vy = info.velocity.y;
 
-  // ✅ précharge la carte suivante et précédente (A+B) pour réduire le chargement
-  useEffect(() => {
-    const preload = (src: string) => {
-      const img = new window.Image();
-      img.decoding = "async";
-      img.src = src;
-    };
-
-    const next = cards[index + 1];
-    const prev = cards[index - 1];
-
-    if (next) {
-      preload(next.frontSrc);
-      preload(next.backSrc);
+    if (axisLock.current === "x") {
+        const ox = info.offset.x;
+        if (Math.abs(ox) > 50) flip(ox < 0 ? 1 : -1);
+        axisLock.current = null;
+        return;
     }
-    if (prev) {
-      preload(prev.frontSrc);
-      preload(prev.backSrc);
+
+    const swipeThreshold = H * 0.2;
+    if (oy < -swipeThreshold || vy < -500) {
+      if (hasNext) await snapTo("next"); else await snapTo("center");
+    } else if (oy > swipeThreshold || vy > 500) {
+      if (hasPrev) await snapTo("prev"); else await snapTo("center");
+    } else {
+      await snapTo("center");
     }
-  }, [index, cards]);
-
-  // slide plus lent + ease
-  const variants = {
-    enter: (d: Dir) => ({
-      y: d === 1 ? 96 : -96,
-      opacity: 0,
-      scale: 0.992,
-      zIndex: d === 1 ? 0 : 2,
-    }),
-    center: { y: 0, opacity: 1, scale: 1, zIndex: 1 },
-    exit: (d: Dir) => ({
-      y: d === 1 ? -56 : 56,
-      opacity: 0,
-      scale: 0.992,
-      zIndex: d === 1 ? 2 : 0,
-    }),
-  } as const;
-
-  // Progression 0..1
-  const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
+    axisLock.current = null;
+  }
 
   return (
-    <main className="relative min-h-dvh w-full overflow-hidden bg-black">
-      {/* Fond page */}
+    <main className="relative min-h-dvh w-full bg-black overflow-hidden">
       <div className="absolute inset-0 -z-10">
         <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
-        <div className="absolute inset-0 bg-black/35" />
+        <div className="absolute inset-0 bg-black/40" />
       </div>
 
-      <div className="min-h-dvh p-4 flex items-center justify-center">
+      <div className="min-h-dvh flex items-center justify-center p-4">
         <div className="w-full max-w-sm">
-          <div className="relative h-[520px] w-full" onWheel={onWheel}>
-            <AnimatePresence initial={false} custom={dir} mode="popLayout">
-              <motion.div
-                key={current.id}
-                custom={dir}
-                variants={variants}
-                initial="enter"
-                animate="center"
-                exit="exit"
-                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-                className="absolute inset-0"
+          <div ref={sceneRef} className="relative h-[550px] w-full">
+            
+            {/* CARTE PRÉCÉDENTE (en dessous) */}
+            {prev && (
+              <motion.div 
+                className="absolute inset-0" 
+                style={{ y: prevY, zIndex: 1, opacity: dragDir === "prev" ? 1 : 0 }}
               >
-                <CardFlip
-                  frontSrc={current.frontSrc}
-                  backSrc={current.backSrc}
-                  rot={rot}
-                  onFlip={flip}
-                  onPrev={() => go(-1)}
-                  onNext={() => go(1)}
-                  priority
-                />
+                <CardFlip frontSrc={prev.frontSrc} backSrc={prev.backSrc} rot={rot} onFlip={flip} />
               </motion.div>
-            </AnimatePresence>
-          </div>
+            )}
 
-          {/* Barre de progression */}
-          <div className="mt-4 flex justify-center">
-            <div className="w-[220px] h-[3px] rounded-full bg-white/25 overflow-hidden">
-              <motion.div
-                className="h-full bg-white"
-                style={{ transformOrigin: "0% 50%" }}
-                animate={{ scaleX: progress }}
-                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-              />
-            </div>
+            {/* CARTE ACTUELLE */}
+            <motion.div 
+              className="absolute inset-0" 
+              style={{ y: currentY, zIndex: 2 }}
+            >
+              <CardFlip frontSrc={current.frontSrc} backSrc={current.backSrc} rot={rot} onFlip={flip} priority />
+            </motion.div>
+
+            {/* CARTE SUIVANTE (empilement par dessus) */}
+            {next && (
+              <motion.div 
+                className="absolute inset-0" 
+                style={{ 
+                    y: nextY, 
+                    zIndex: 3, 
+                    opacity: neighborOpacity,
+                    boxShadow: "0 -10px 20px rgba(0,0,0,0.3)" 
+                }}
+              >
+                <CardFlip frontSrc={next.frontSrc} backSrc={next.backSrc} rot={rot} onFlip={flip} />
+              </motion.div>
+            )}
+
+            {/* Zone de contrôle invisible */}
+            <motion.div
+              className="absolute inset-0 z-40 touch-none"
+              drag
+              dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+              dragElastic={0.05}
+              onDrag={onDrag}
+              onDragEnd={onDragEnd}
+              onClick={() => flip(1)}
+            />
           </div>
         </div>
       </div>
     </main>
   );
 }
-
