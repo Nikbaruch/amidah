@@ -1,18 +1,13 @@
+// app/page.tsx
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import {
-  motion,
-  useMotionValue,
-  useTransform,
-  useMotionValueEvent,
-  animate,
-  type PanInfo,
-} from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import CardFlip from "@/components/CardFlip";
 
 type CardData = { id: string; frontSrc: string; backSrc: string };
+type Dir = 1 | -1;
 
 function clamp(i: number, len: number) {
   if (i < 0) return 0;
@@ -46,14 +41,18 @@ export default function Page() {
   );
 
   const [index, setIndex] = useState(0);
-  const hasPrev = index > 0;
-  const hasNext = index < cards.length - 1;
+  const [dir, setDir] = useState<Dir>(1);
 
-  // Face globale conservée entre cartes (A/B)
+  // face globale (A/B) conservée entre cartes
   const [rot, setRot] = useState(0);
-  const flip = (d: 1 | -1) => setRot((r) => r + d * 180);
+  const flip = (fdir: 1 | -1) => setRot((r) => r + fdir * 180);
 
-  // Expérience “app”: pas de scroll page
+  function go(d: Dir) {
+    setDir(d);
+    setIndex((i) => clamp(i + d, cards.length));
+  }
+
+  // verrouillage scroll (expérience app)
   useEffect(() => {
     const html = document.documentElement;
     const body = document.body;
@@ -76,131 +75,7 @@ export default function Page() {
     };
   }, []);
 
-  // Préchargement next/prev (A+B)
-  useEffect(() => {
-    const preload = (src: string) => {
-      const img = new window.Image();
-      img.decoding = "async";
-      img.src = src;
-    };
-    const next = cards[index + 1];
-    const prev = cards[index - 1];
-    if (next) {
-      preload(next.frontSrc);
-      preload(next.backSrc);
-    }
-    if (prev) {
-      preload(prev.frontSrc);
-      preload(prev.backSrc);
-    }
-  }, [index, cards]);
-
-  // Mesure hauteur de scène
-  const sceneRef = useRef<HTMLDivElement | null>(null);
-  const [H, setH] = useState(520);
-  useEffect(() => {
-    if (!sceneRef.current) return;
-    const el = sceneRef.current;
-    const ro = new ResizeObserver(() => setH(Math.round(el.getBoundingClientRect().height)));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Swap “poussé”
-  const y = useMotionValue(0);
-
-  // GAP = garantit qu’on ne voit JAMAIS une autre carte au repos
-  const GAP = 140;
-  const OFF = H + GAP;
-
-  // Positions réactives (important: pas de y.get())
-  const prevY = useTransform(y, (v) => v - OFF);
-  const nextY = useTransform(y, (v) => v + OFF);
-
-  // Un petit fade-in uniquement quand on commence à tirer
-  const absY = useTransform(y, (v) => Math.abs(v));
-  const neighborOpacity = useTransform(absY, [0, 18, 80], [0, 0, 1]); // invisible au repos
-
-  // Direction pour la superposition (qui passe au-dessus)
-  const [dragDir, setDragDir] = useState<"next" | "prev" | null>(null);
-  useMotionValueEvent(y, "change", (v) => {
-    if (v < -2) setDragDir("next");
-    else if (v > 2) setDragDir("prev");
-    else setDragDir(null);
-  });
-
-  // Lock d’axe: horizontal = flip, vertical = swap
-  const axisLock = useRef<"x" | "y" | null>(null);
-
-  const current = cards[index];
-  const prev = hasPrev ? cards[index - 1] : null;
-  const next = hasNext ? cards[index + 1] : null;
-
-  async function snapTo(target: "next" | "prev" | "center") {
-    if (target === "center") {
-      await animate(y, 0, { duration: 0.35, ease: [0.22, 1, 0.36, 1] }).finished;
-      return;
-    }
-
-    const to = target === "next" ? -OFF : OFF;
-    await animate(y, to, { duration: 0.30, ease: [0.22, 1, 0.36, 1] }).finished;
-
-    setIndex((i) => clamp(i + (target === "next" ? 1 : -1), cards.length));
-    y.set(0);
-  }
-
-  function onDragStart() {
-    axisLock.current = null;
-  }
-
-  function onDrag(_e: unknown, info: PanInfo) {
-    const ox = info.offset.x;
-    const oy = info.offset.y;
-
-    if (!axisLock.current) {
-      const ax = Math.abs(ox);
-      const ay = Math.abs(oy);
-      if (ax > 8 || ay > 8) axisLock.current = ax > ay ? "x" : "y";
-    }
-
-    if (axisLock.current === "y") {
-      if (!hasPrev && oy > 0) return;
-      if (!hasNext && oy < 0) return;
-      y.set(oy);
-    }
-  }
-
-  async function onDragEnd(_e: unknown, info: PanInfo) {
-    const ox = info.offset.x;
-    const oy = info.offset.y;
-    const vx = info.velocity.x;
-    const vy = info.velocity.y;
-
-    // Horizontal => flip
-    if (axisLock.current === "x") {
-      const swipePowerX = Math.abs(ox) * Math.abs(vx);
-      const ok = Math.abs(ox) > 45 || swipePowerX > 650;
-      if (ok) flip(ox < 0 ? 1 : -1);
-      return;
-    }
-
-    // Vertical => swap
-    const distOK = Math.abs(oy) > Math.min(150, H * 0.24);
-    const veloOK = Math.abs(vy) > 850;
-
-    if ((distOK || veloOK) && oy < 0 && hasNext) {
-      await snapTo("next");
-      return;
-    }
-    if ((distOK || veloOK) && oy > 0 && hasPrev) {
-      await snapTo("prev");
-      return;
-    }
-
-    await snapTo("center");
-  }
-
-  // Desktop: wheel/trackpad => change de carte
+  // wheel desktop => change de carte
   const wheelAcc = useRef(0);
   const wheelTimer = useRef<number | null>(null);
 
@@ -212,52 +87,65 @@ export default function Page() {
     wheelAcc.current += dy;
 
     if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
-    wheelTimer.current = window.setTimeout(() => (wheelAcc.current = 0), 170);
+    wheelTimer.current = window.setTimeout(() => {
+      wheelAcc.current = 0;
+    }, 220);
 
-    const TH = 90;
-    if (wheelAcc.current > TH && hasNext) {
+    const TH = 110;
+    if (wheelAcc.current > TH) {
       wheelAcc.current = 0;
-      snapTo("next");
-    } else if (wheelAcc.current < -TH && hasPrev) {
+      go(1);
+    } else if (wheelAcc.current < -TH) {
       wheelAcc.current = 0;
-      snapTo("prev");
+      go(-1);
     }
   }
 
-  // Clavier: ←/→ flip ; ↑/↓ swap
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-      if (tag === "input" || tag === "textarea" || tag === "select") return;
+  const current = cards[index];
 
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        flip(1);
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        flip(-1);
-      } else if (e.key === "ArrowUp" && hasPrev) {
-        e.preventDefault();
-        snapTo("prev");
-      } else if (e.key === "ArrowDown" && hasNext) {
-        e.preventDefault();
-        snapTo("next");
-      }
+  // ✅ précharge la carte suivante et précédente (A+B) pour réduire le chargement
+  useEffect(() => {
+    const preload = (src: string) => {
+      const img = new window.Image();
+      img.decoding = "async";
+      img.src = src;
     };
 
-    window.addEventListener("keydown", onKeyDown, { passive: false });
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hasPrev, hasNext, H]);
+    const next = cards[index + 1];
+    const prev = cards[index - 1];
 
-  // Progress bar 0..1
+    if (next) {
+      preload(next.frontSrc);
+      preload(next.backSrc);
+    }
+    if (prev) {
+      preload(prev.frontSrc);
+      preload(prev.backSrc);
+    }
+  }, [index, cards]);
+
+  // slide plus lent + ease
+  const variants = {
+    enter: (d: Dir) => ({
+      y: d === 1 ? 96 : -96,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 0 : 2,
+    }),
+    center: { y: 0, opacity: 1, scale: 1, zIndex: 1 },
+    exit: (d: Dir) => ({
+      y: d === 1 ? -56 : 56,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 2 : 0,
+    }),
+  } as const;
+
+  // Progression 0..1
   const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
 
-  // Superposition: celle vers laquelle on va passe au-dessus
-  const zPrev = dragDir === "prev" ? 3 : 1;
-  const zNext = dragDir === "next" ? 3 : 1;
-
   return (
-    <main className="relative min-h-dvh w-full bg-black">
+    <main className="relative min-h-dvh w-full overflow-hidden bg-black">
       {/* Fond page */}
       <div className="absolute inset-0 -z-10">
         <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
@@ -266,50 +154,29 @@ export default function Page() {
 
       <div className="min-h-dvh p-4 flex items-center justify-center">
         <div className="w-full max-w-sm">
-          <div ref={sceneRef} className="relative h-[520px] w-full" onWheel={onWheel}>
-            {/* PREV (hors écran au repos) */}
-            {prev && (
+          <div className="relative h-[520px] w-full" onWheel={onWheel}>
+            <AnimatePresence initial={false} custom={dir} mode="popLayout">
               <motion.div
-                className="absolute inset-0 pointer-events-none"
-                style={{ y: prevY, opacity: neighborOpacity, zIndex: zPrev }}
+                key={current.id}
+                custom={dir}
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-0"
               >
-                <CardFlip frontSrc={prev.frontSrc} backSrc={prev.backSrc} rot={rot} onFlip={flip} />
+                <CardFlip
+                  frontSrc={current.frontSrc}
+                  backSrc={current.backSrc}
+                  rot={rot}
+                  onFlip={flip}
+                  onPrev={() => go(-1)}
+                  onNext={() => go(1)}
+                  priority
+                />
               </motion.div>
-            )}
-
-            {/* CURRENT */}
-            <motion.div className="absolute inset-0" style={{ y, zIndex: 2 }}>
-              <CardFlip
-                frontSrc={current.frontSrc}
-                backSrc={current.backSrc}
-                rot={rot}
-                onFlip={flip}
-                priority
-              />
-            </motion.div>
-
-            {/* NEXT (hors écran au repos) */}
-            {next && (
-              <motion.div
-                className="absolute inset-0 pointer-events-none"
-                style={{ y: nextY, opacity: neighborOpacity, zIndex: zNext }}
-              >
-                <CardFlip frontSrc={next.frontSrc} backSrc={next.backSrc} rot={rot} onFlip={flip} />
-              </motion.div>
-            )}
-
-            {/* Gesture layer unique: vertical=swap / horizontal=flip */}
-            <motion.div
-              className="absolute inset-0 z-30"
-              style={{ touchAction: "none" }}
-              drag
-              dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-              dragElastic={0.18}
-              onDragStart={onDragStart}
-              onDrag={onDrag}
-              onDragEnd={onDragEnd}
-              onClick={() => flip(1)}
-            />
+            </AnimatePresence>
           </div>
 
           {/* Barre de progression */}
@@ -328,3 +195,4 @@ export default function Page() {
     </main>
   );
 }
+
