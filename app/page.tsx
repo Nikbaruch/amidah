@@ -37,13 +37,12 @@ export default function Page() {
 
   const [index, setIndex] = useState(0);
   const [rot, setRot] = useState(0);
-  const [H, setH] = useState(0);
+  const [windowHeight, setWindowHeight] = useState(0);
   const dragY = useMotionValue(0);
 
-  // Mise à jour de la hauteur réelle de l'écran
   useEffect(() => {
-    setH(window.innerHeight);
-    const handleResize = () => setH(window.innerHeight);
+    setWindowHeight(window.innerHeight);
+    const handleResize = () => setWindowHeight(window.innerHeight);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -51,55 +50,48 @@ export default function Page() {
   const hasPrev = index > 0;
   const hasNext = index < cards.length - 1;
 
-  // --- LOGIQUE DE SUPERPOSITION ---
-  // Carte actuelle : ne bouge que si on revient en arrière (drag vers le bas)
-  const currentY = useTransform(dragY, [0, H], [0, H]);
-  
-  // Carte suivante : elle part de H et arrive à 0 quand dragY va de 0 à -H
-  const nextY = useTransform(dragY, [0, -H], [H, 0]);
+  // --- TRANSFORMATION D'EMPILEMENT ---
+  // La carte actuelle s'éloigne vers le bas quand on veut voir la précédente (dragY > 0)
+  // Mais elle reste FIXE (0) quand la suivante arrive (dragY < 0)
+  const currentY = useTransform(dragY, [0, windowHeight], [0, windowHeight]);
 
-  const flip = (d: 1 | -1) => setRot((r) => r + d * 180);
+  // La carte suivante part du bas de l'écran et remonte
+  const nextY = useTransform(dragY, [0, -windowHeight], [windowHeight, 0]);
 
-  const onDragEnd = (_e: any, info: PanInfo) => {
-    const threshold = H * 0.2;
+  const onDragEnd = (_: any, info: PanInfo) => {
     const velocity = info.velocity.y;
+    const offset = info.offset.y;
 
-    if (info.offset.y < -threshold || velocity < -500) {
+    if (offset < -100 || velocity < -500) {
       if (hasNext) {
-        animate(dragY, -H, { type: "spring", bounce: 0, duration: 0.4 }).then(() => {
-          setIndex(i => i + 1);
+        animate(dragY, -windowHeight, { duration: 0.3, ease: "easeInOut" }).then(() => {
+          setIndex(prev => prev + 1);
           dragY.set(0);
         });
-      } else {
-        animate(dragY, 0);
-      }
-    } else if (info.offset.y > threshold || velocity > 500) {
+      } else animate(dragY, 0);
+    } else if (offset > 100 || velocity > 500) {
       if (hasPrev) {
-        animate(dragY, H, { type: "spring", bounce: 0, duration: 0.4 }).then(() => {
-          setIndex(i => i - 1);
+        animate(dragY, windowHeight, { duration: 0.3, ease: "easeInOut" }).then(() => {
+          setIndex(prev => prev - 1);
           dragY.set(0);
         });
-      } else {
-        animate(dragY, 0);
-      }
+      } else animate(dragY, 0);
     } else {
       animate(dragY, 0);
     }
   };
 
   return (
-    <main className="fixed inset-0 bg-neutral-900 overflow-hidden select-none touch-none">
-      {/* Fond global */}
+    <main className="fixed inset-0 bg-black overflow-hidden touch-none select-none">
       <div className="absolute inset-0 -z-10">
-        <Image src="/images/fond.png" alt="fond" fill className="object-cover opacity-40" priority />
+        <Image src="/images/fond.png" alt="fond" fill className="object-cover opacity-30" />
       </div>
 
-      <div className="relative h-full w-full">
-        
-        {/* CARTE PRÉCÉDENTE (Fond de pile fixe) */}
+      <div className="relative h-full w-full flex items-center justify-center">
+        {/* CARTE DESSOUS (PRÉCÉDENTE OU ACTUELLE SI ON SCROLLE VERS LE HAUT) */}
         {hasPrev && (
-          <div className="absolute inset-0 z-0">
-            <CardFlip {...cards[index - 1]} rot={rot} />
+          <div className="absolute inset-0 z-0 opacity-50">
+             <CardFlip {...cards[index - 1]} rot={rot} />
           </div>
         )}
 
@@ -111,24 +103,23 @@ export default function Page() {
           <CardFlip {...cards[index]} rot={rot} priority />
         </motion.div>
 
-        {/* CARTE SUIVANTE (Empilement par dessus) */}
+        {/* CARTE SUIVANTE (QUI ARRIVE PAR DESSUS) */}
         {hasNext && (
           <motion.div 
             style={{ y: nextY }} 
-            className="absolute inset-0 z-20 shadow-[0_-20px_50px_rgba(0,0,0,0.5)]"
+            className="absolute inset-0 z-20 shadow-[0_-15px_50px_rgba(0,0,0,0.8)]"
           >
             <CardFlip {...cards[index + 1]} rot={rot} />
           </motion.div>
         )}
 
-        {/* ZONE DE CAPTURE GESTES */}
+        {/* ZONE DE GESTE */}
         <motion.div
           className="absolute inset-0 z-50"
           drag="y"
           dragConstraints={{ top: 0, bottom: 0 }}
-          dragElastic={0.1}
           onDragEnd={onDragEnd}
-          onClick={() => flip(1)}
+          onClick={() => setRot(r => r + 180)}
         />
       </div>
     </main>
