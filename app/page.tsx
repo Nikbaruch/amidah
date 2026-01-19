@@ -20,53 +20,31 @@ const cards = [
 
 export default function Home() {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [touchStart, setTouchStart] = useState({ x: 0, y: 0 });
-  const [touchEnd, setTouchEnd] = useState({ x: 0, y: 0 });
+  const [touchStartY, setTouchStartY] = useState(0);
+  const [touchCurrentY, setTouchCurrentY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const minSwipeDistance = 50;
+  const minSwipeDistance = 80;
+  const peekHeight = 60; // Hauteur du bord visible de la carte suivante
 
   const onTouchStart = (e: React.TouchEvent) => {
-    setTouchEnd({ x: 0, y: 0 });
-    setTouchStart({
-      x: e.targetTouches[0].clientX,
-      y: e.targetTouches[0].clientY
-    });
+    const touch = e.targetTouches[0];
+    setTouchStartY(touch.clientY);
+    setTouchCurrentY(touch.clientY);
     setIsDragging(true);
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (!isDragging) return;
-    const currentTouch = {
-      x: e.targetTouches[0].clientX,
-      y: e.targetTouches[0].clientY
-    };
-    setTouchEnd(currentTouch);
-    
-    const offsetY = currentTouch.y - touchStart.y;
-    const offsetX = Math.abs(currentTouch.x - touchStart.x);
-    
-    // Ne gérer le drag vertical que si le mouvement est principalement vertical
-    if (offsetX < 30) {
-      // Limite le drag vers le haut seulement (valeurs négatives)
-      if (offsetY < 0 && currentIndex < cards.length - 1) {
-        setDragOffset(offsetY);
-      } else if (offsetY > 0 && currentIndex > 0) {
-        setDragOffset(offsetY);
-      }
-    }
+    const touch = e.targetTouches[0];
+    setTouchCurrentY(touch.clientY);
   };
 
   const onTouchEnd = () => {
-    if (!touchStart.y || !touchEnd.y) {
-      setIsDragging(false);
-      setDragOffset(0);
-      return;
-    }
+    if (!isDragging) return;
 
-    const distance = touchStart.y - touchEnd.y;
+    const distance = touchStartY - touchCurrentY;
     const isSwipeUp = distance > minSwipeDistance;
     const isSwipeDown = distance < -minSwipeDistance;
 
@@ -77,7 +55,27 @@ export default function Home() {
     }
 
     setIsDragging(false);
-    setDragOffset(0);
+    setTouchStartY(0);
+    setTouchCurrentY(0);
+  };
+
+  // Calcul du déplacement pendant le drag
+  const getDragOffset = () => {
+    if (!isDragging) return 0;
+    const offset = touchStartY - touchCurrentY;
+    
+    // Limiter le drag vers le haut si on est à la dernière carte
+    if (currentIndex >= cards.length - 1 && offset > 0) return 0;
+    // Limiter le drag vers le bas si on est à la première carte
+    if (currentIndex <= 0 && offset < 0) return 0;
+    
+    // Effet élastique aux bords
+    const maxDrag = window.innerHeight * 0.7;
+    if (Math.abs(offset) > maxDrag) {
+      return offset > 0 ? maxDrag : -maxDrag;
+    }
+    
+    return offset;
   };
 
   // Détection du scroll sur desktop
@@ -85,9 +83,9 @@ export default function Home() {
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       
-      if (e.deltaY > 0 && currentIndex < cards.length - 1) {
+      if (e.deltaY > 20 && currentIndex < cards.length - 1) {
         setCurrentIndex(prev => prev + 1);
-      } else if (e.deltaY < 0 && currentIndex > 0) {
+      } else if (e.deltaY < -20 && currentIndex > 0) {
         setCurrentIndex(prev => prev - 1);
       }
     };
@@ -104,6 +102,8 @@ export default function Home() {
     };
   }, [currentIndex, cards.length]);
 
+  const dragOffset = getDragOffset();
+
   return (
     <div 
       ref={containerRef}
@@ -113,81 +113,111 @@ export default function Home() {
       onTouchEnd={onTouchEnd}
     >
       {/* Container des cartes empilées */}
-      <div className="absolute inset-0 flex items-center justify-center">
+      <div className="absolute inset-0">
         {cards.map((card, index) => {
-          const offset = index - currentIndex;
           const isActive = index === currentIndex;
           const isNext = index === currentIndex + 1;
           const isPrev = index === currentIndex - 1;
           
-          // Calcul de la transformation
+          // Ne rendre que la carte active, la suivante et la précédente
+          if (!isActive && !isNext && !isPrev) return null;
+          
           let transform = '';
           let zIndex = 0;
-          let opacity = 0;
+          let opacity = 1;
+          let scale = 1;
+          let shadow = '';
           
           if (isActive) {
-            // Carte active
-            zIndex = 10;
-            opacity = 1;
-            const dragY = isDragging ? dragOffset : 0;
-            transform = `translateY(${dragY}px)`;
+            // Carte active - se déplace avec le drag
+            zIndex = 20;
+            
+            // Calcul de l'échelle basée sur le drag
+            const dragProgress = Math.abs(dragOffset) / (window.innerHeight * 0.5);
+            scale = 1 - (dragProgress * 0.05); // Légère réduction pendant le drag
+            
+            transform = `translateY(${-dragOffset}px) scale(${scale})`;
+            shadow = '0 25px 50px -12px rgba(0, 0, 0, 0.5)';
           } else if (isNext) {
-            // Carte suivante (visible en dessous lors du drag)
-            zIndex = 5;
-            opacity = isDragging && dragOffset < 0 ? 0.3 : 0;
-            const peekAmount = isDragging && dragOffset < 0 ? Math.min(20, Math.abs(dragOffset) / 10) : 0;
-            transform = `translateY(${100 - peekAmount}%)`;
+            // Carte suivante - toujours visible en dessous avec un bord
+            zIndex = 10;
+            const basePosition = window.innerHeight - peekHeight;
+            const dragAdjustment = dragOffset > 0 ? dragOffset : 0;
+            
+            // Effet de parallaxe - la carte suivante monte plus lentement
+            const parallaxFactor = 0.85;
+            const finalPosition = basePosition - (dragAdjustment * parallaxFactor);
+            
+            // Scale légèrement plus petit
+            scale = 0.95;
+            
+            transform = `translateY(${finalPosition}px) scale(${scale})`;
+            shadow = '0 -10px 30px -10px rgba(0, 0, 0, 0.3)';
           } else if (isPrev) {
-            // Carte précédente
-            zIndex = 5;
-            opacity = isDragging && dragOffset > 0 ? 0.3 : 0;
-            transform = `translateY(-100%)`;
-          } else if (offset > 0) {
-            // Cartes futures (cachées en dessous)
-            zIndex = 0;
-            opacity = 0;
-            transform = `translateY(100%)`;
-          } else {
-            // Cartes passées (cachées au-dessus)
-            zIndex = 0;
-            opacity = 0;
-            transform = `translateY(-100%)`;
+            // Carte précédente - se déplace avec le drag vers le bas
+            zIndex = 10;
+            const basePosition = -window.innerHeight + peekHeight;
+            const dragAdjustment = dragOffset < 0 ? dragOffset : 0;
+            
+            // Parallaxe inverse
+            const parallaxFactor = 0.85;
+            const finalPosition = basePosition - (dragAdjustment * parallaxFactor);
+            
+            scale = 0.95;
+            
+            transform = `translateY(${finalPosition}px) scale(${scale})`;
+            shadow = '0 10px 30px -10px rgba(0, 0, 0, 0.3)';
           }
 
           return (
             <div
               key={card.id}
-              className="absolute inset-0 flex items-center justify-center p-4 md:p-8"
+              className="absolute top-0 left-0 w-full h-full"
               style={{
                 transform,
                 zIndex,
                 opacity,
-                transition: isDragging ? 'none' : 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                pointerEvents: isActive ? 'auto' : 'none',
+                boxShadow: shadow,
+                transition: isDragging 
+                  ? 'box-shadow 0.2s ease-out' 
+                  : 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                willChange: 'transform',
               }}
             >
-              <CardFlip
-                imageA={card.imageA}
-                imageB={card.imageB}
-              />
+              <div className="h-full w-full flex items-center justify-center p-4 md:p-8">
+                <CardFlip
+                  imageA={card.imageA}
+                  imageB={card.imageB}
+                  isActive={isActive}
+                />
+              </div>
             </div>
           );
         })}
       </div>
 
-      {/* Indicateur de progression (points) */}
-      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-2 z-20">
+      {/* Indicateur de progression */}
+      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-2 z-30 pointer-events-none">
         {cards.map((_, index) => (
           <div
             key={index}
-            className={`h-2 w-2 rounded-full transition-all duration-300 ${
+            className={`h-2 rounded-full transition-all duration-300 ${
               index === currentIndex 
                 ? 'bg-white w-8' 
-                : 'bg-white/30'
+                : 'bg-white/30 w-2'
             }`}
           />
         ))}
       </div>
+
+      {/* Instructions */}
+      {currentIndex === 0 && !isDragging && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none">
+          <div className="bg-black/70 text-white px-6 py-3 rounded-full text-sm backdrop-blur-sm animate-bounce">
+            ↑ Swipe vers le haut pour la carte suivante
+          </div>
+        </div>
+      )}
     </div>
   );
 }
