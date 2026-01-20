@@ -1,168 +1,175 @@
-'use client';
+// components/CardFlip.tsx
+"use client";
 
-import { useState, useEffect } from 'react';
-import Image from 'next/image';
+import { useEffect } from "react";
+import Image from "next/image";
+import { motion, type PanInfo } from "framer-motion";
 
-interface CardFlipProps {
-  imageA: string;
-  imageB: string;
-  isActive: boolean;
-}
+type FlipDir = 1 | -1;
 
-export default function CardFlip({ imageA, imageB, isActive }: CardFlipProps) {
-  const [isFlipped, setIsFlipped] = useState(false);
-  const [touchStart, setTouchStart] = useState(0);
-  const [touchEnd, setTouchEnd] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
-  const [screenWidth, setScreenWidth] = useState(1024);
-  const [mounted, setMounted] = useState(false);
+export type CardFlipProps = {
+  frontSrc: string;
+  backSrc: string;
 
-  const minSwipeDistance = 50;
+  // rotation cumulative (contrôlée par le parent)
+  rot: number;
+  onFlip: (dir: FlipDir) => void;
 
-  // Montage du composant
+  onPrev?: () => void;
+  onNext?: () => void;
+
+  // ✅ pour mettre priority uniquement sur la carte affichée
+  priority?: boolean;
+};
+
+export default function CardFlip({
+  frontSrc,
+  backSrc,
+  rot,
+  onFlip,
+  onPrev,
+  onNext,
+  priority = false,
+}: CardFlipProps) {
+  // Clavier
   useEffect(() => {
-    setMounted(true);
-    setScreenWidth(window.innerWidth);
-    
-    const handleResize = () => setScreenWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (!isActive || !mounted) return;
-    e.stopPropagation();
-    setTouchEnd(0);
-    setTouchStart(e.targetTouches[0].clientX);
-    setIsDragging(true);
-  };
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        onFlip(1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        onFlip(-1);
+      } else if (e.key === "ArrowUp") {
+        onPrev?.();
+      } else if (e.key === "ArrowDown") {
+        onNext?.();
+      }
+    };
 
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging || !isActive || !mounted) return;
-    e.stopPropagation();
-    const currentTouch = e.targetTouches[0].clientX;
-    setTouchEnd(currentTouch);
-    
-    const offset = currentTouch - touchStart;
-    setDragOffset(offset);
-  };
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onFlip, onPrev, onNext]);
 
-  const handleTouchEnd = () => {
-    if (!isActive || !mounted) return;
-    if (!touchStart || !touchEnd) {
-      setIsDragging(false);
-      setDragOffset(0);
+  function handleDragEnd(_: unknown, info: PanInfo) {
+    const ox = info.offset.x;
+    const oy = info.offset.y;
+    const vx = info.velocity.x;
+    const vy = info.velocity.y;
+
+    const swipePowerX = Math.abs(ox) * Math.abs(vx);
+    const swipePowerY = Math.abs(oy) * Math.abs(vy);
+
+    const isHorizontal = Math.abs(ox) > Math.abs(oy);
+
+    // seuils “coup de pouce”
+    const H = Math.abs(ox) > 45 || swipePowerX > 650;
+    const V = Math.abs(oy) > 70 || swipePowerY > 850;
+
+    if (isHorizontal && H) {
+      onFlip(ox < 0 ? 1 : -1);
       return;
     }
 
-    const distance = touchStart - touchEnd;
-    const isSwipeLeft = distance > minSwipeDistance;
-    const isSwipeRight = distance < -minSwipeDistance;
-
-    if (isSwipeLeft || isSwipeRight) {
-      setIsFlipped(!isFlipped);
+    if (!isHorizontal && V) {
+      if (oy < 0) onNext?.();
+      else onPrev?.();
     }
-
-    setIsDragging(false);
-    setDragOffset(0);
-  };
-
-  const getRotation = () => {
-    if (!isDragging || !mounted) return isFlipped ? 180 : 0;
-    
-    const dragRotation = (dragOffset / screenWidth) * 90;
-    const baseRotation = isFlipped ? 180 : 0;
-    return baseRotation + dragRotation;
-  };
-
-  const getIndicatorOpacity = () => {
-    if (isDragging) return 0;
-    return 1;
-  };
-
-  // Afficher un placeholder pendant le chargement
-  if (!mounted) {
-    return (
-      <div className="w-full max-w-2xl h-[75vh] md:h-[85vh] bg-white rounded-3xl shadow-2xl flex items-center justify-center">
-        <div className="text-gray-400">Chargement de la carte...</div>
-      </div>
-    );
   }
 
   return (
-    <div 
-      className="w-full max-w-2xl h-[75vh] md:h-[85vh] perspective-1000"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-    >
-      <div 
-        className="relative w-full h-full transform-style-3d"
+    <div className="relative h-full w-full flex items-center justify-center">
+      {/* Fond derrière la carte */}
+      <div className="absolute inset-0 -z-10">
+        <Image
+          src="/images/fond.png"
+          alt="Fond carte"
+          fill
+          priority
+          className="object-cover"
+        />
+      </div>
+
+      {/* Carte (ne capte pas les gestes) */}
+      <div
+        className="relative pointer-events-none"
         style={{
-          transformStyle: 'preserve-3d',
-          transition: isDragging 
-            ? 'none' 
-            : 'transform 0.8s cubic-bezier(0.34, 1.56, 0.64, 1)',
-          transform: `rotateY(${getRotation()}deg)`,
-          willChange: 'transform',
+          width: "min(92vw, 420px)",
+          aspectRatio: "1080 / 1522",
+          perspective: "1200px",
+          WebkitPerspective: "1200px",
         }}
       >
-        {/* Face A */}
-        <div 
-          className="absolute inset-0 backface-hidden rounded-3xl overflow-hidden shadow-2xl"
+        <motion.div
+          className="absolute inset-0"
+          initial={false} // évite un flip au montage lors du changement de carte
+          animate={{ rotateY: rot }}
+          transition={{
+            type: "spring",
+            stiffness: 900,
+            damping: 55,
+            mass: 0.6,
+          }}
           style={{
-            backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden',
+            transformStyle: "preserve-3d",
+            WebkitTransformStyle: "preserve-3d",
+            willChange: "transform",
           }}
         >
-          <div className="relative w-full h-full bg-white">
+          {/* FACE A */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+              transform: "translateZ(1px)",
+            }}
+          >
             <Image
-              src={imageA}
-              alt="Carte face A"
+              src={frontSrc}
+              alt="Face A"
               fill
+              priority={priority}
               className="object-contain"
-              priority
-              sizes="(max-width: 768px) 100vw, 896px"
+              sizes="(max-width: 768px) 92vw, 420px"
             />
           </div>
-          
-          <div 
-            className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/50 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm transition-opacity duration-300"
-            style={{ opacity: getIndicatorOpacity() }}
-          >
-            ← Swipe pour retourner →
-          </div>
-        </div>
 
-        {/* Face B */}
-        <div 
-          className="absolute inset-0 backface-hidden rounded-3xl overflow-hidden shadow-2xl"
-          style={{
-            backfaceVisibility: 'hidden',
-            WebkitBackfaceVisibility: 'hidden',
-            transform: 'rotateY(180deg)',
-          }}
-        >
-          <div className="relative w-full h-full bg-white">
+          {/* FACE B */}
+          <div
+            className="absolute inset-0"
+            style={{
+              backfaceVisibility: "hidden",
+              WebkitBackfaceVisibility: "hidden",
+              transform: "rotateY(180deg) translateZ(1px)",
+            }}
+          >
             <Image
-              src={imageB}
-              alt="Carte face B"
+              src={backSrc}
+              alt="Face B"
               fill
+              priority={priority}
               className="object-contain"
-              priority
-              sizes="(max-width: 768px) 100vw, 896px"
+              sizes="(max-width: 768px) 92vw, 420px"
             />
           </div>
-          
-          <div 
-            className="absolute bottom-4 left-1/2 transform -translate-x-1/2 bg-black/50 text-white px-4 py-2 rounded-full text-sm backdrop-blur-sm transition-opacity duration-300"
-            style={{ opacity: getIndicatorOpacity() }}
-          >
-            ← Swipe pour retourner →
-          </div>
-        </div>
+        </motion.div>
       </div>
+
+      {/* Layer gestes au-dessus (mobile) */}
+      <motion.div
+        className="absolute inset-0 z-20"
+        style={{ touchAction: "none" }} // crucial pour swipe vertical + horizontal sur mobile
+        drag
+        dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
+        dragElastic={0.2}
+        onDragEnd={handleDragEnd}
+        onClick={() => onFlip(1)}
+      />
     </div>
   );
 }
+
