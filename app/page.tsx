@@ -1,250 +1,198 @@
-'use client';
+// app/page.tsx
+"use client";
 
-import { useState, useRef, useEffect } from 'react';
-import CardFlip from '@/components/CardFlip';
+import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import { AnimatePresence, motion } from "framer-motion";
+import CardFlip from "@/components/CardFlip";
 
-// Configuration des cartes avec les images
-const cards = [
-  { id: 1, imageA: '/images/cards/card-01-a.png', imageB: '/images/cards/card-01-b.png' },
-  { id: 2, imageA: '/images/cards/card-02-a.png', imageB: '/images/cards/card-02-b.png' },
-  { id: 3, imageA: '/images/cards/card-03-a.png', imageB: '/images/cards/card-03-b.png' },
-  { id: 4, imageA: '/images/cards/card-04-a.png', imageB: '/images/cards/card-04-b.png' },
-  { id: 5, imageA: '/images/cards/card-05-a.png', imageB: '/images/cards/card-05-b.png' },
-  { id: 6, imageA: '/images/cards/card-06-a.png', imageB: '/images/cards/card-06-b.png' },
-  { id: 7, imageA: '/images/cards/card-07-a.png', imageB: '/images/cards/card-07-b.png' },
-  { id: 8, imageA: '/images/cards/card-08-a.png', imageB: '/images/cards/card-08-b.png' },
-  { id: 9, imageA: '/images/cards/card-09-a.png', imageB: '/images/cards/card-09-b.png' },
-  { id: 10, imageA: '/images/cards/card-10-a.png', imageB: '/images/cards/card-10-b.png' },
-  // Ajoutez autant de cartes que nécessaire
-];
+type CardData = { id: string; frontSrc: string; backSrc: string };
+type Dir = 1 | -1;
 
-export default function Home() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [touchStartY, setTouchStartY] = useState(0);
-  const [touchCurrentY, setTouchCurrentY] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [screenHeight, setScreenHeight] = useState(800); // Valeur par défaut
-  const [mounted, setMounted] = useState(false); // Nouveau state
-  const containerRef = useRef<HTMLDivElement>(null);
+function clamp(i: number, len: number) {
+  if (i < 0) return 0;
+  if (i >= len) return len - 1;
+  return i;
+}
 
-  const minSwipeDistance = 80;
-  const peekHeight = 60; // Hauteur du bord visible de la carte suivante
+export default function Page() {
+  const cards = useMemo<CardData[]>(
+    () => [
+      { id: "card-01", frontSrc: "/images/cards/card-01-a.png", backSrc: "/images/cards/card-01-b.png" },
+      { id: "card-02", frontSrc: "/images/cards/card-02-a.png", backSrc: "/images/cards/card-02-b.png" },
+      { id: "card-03", frontSrc: "/images/cards/card-03-a.png", backSrc: "/images/cards/card-03-b.png" },
+      { id: "card-04", frontSrc: "/images/cards/card-04-a.png", backSrc: "/images/cards/card-04-b.png" },
+      { id: "card-05", frontSrc: "/images/cards/card-05-a.png", backSrc: "/images/cards/card-05-b.png" },
+      { id: "card-06", frontSrc: "/images/cards/card-06-a.png", backSrc: "/images/cards/card-06-b.png" },
+      { id: "card-07", frontSrc: "/images/cards/card-07-a.png", backSrc: "/images/cards/card-07-b.png" },
+      { id: "card-08", frontSrc: "/images/cards/card-08-a.png", backSrc: "/images/cards/card-08-b.png" },
+      { id: "card-09", frontSrc: "/images/cards/card-09-a.png", backSrc: "/images/cards/card-09-b.png" },
+      { id: "card-10", frontSrc: "/images/cards/card-10-a.png", backSrc: "/images/cards/card-10-b.png" },
+      { id: "card-11", frontSrc: "/images/cards/card-11-a.png", backSrc: "/images/cards/card-11-b.png" },
+      { id: "card-12", frontSrc: "/images/cards/card-12-a.png", backSrc: "/images/cards/card-12-b.png" },
+      { id: "card-13", frontSrc: "/images/cards/card-13-a.png", backSrc: "/images/cards/card-13-b.png" },
+      { id: "card-14", frontSrc: "/images/cards/card-14-a.png", backSrc: "/images/cards/card-14-b.png" },
+      { id: "card-15", frontSrc: "/images/cards/card-15-a.png", backSrc: "/images/cards/card-15-b.png" },
+      { id: "card-16", frontSrc: "/images/cards/card-16-a.png", backSrc: "/images/cards/card-16-b.png" },
+      { id: "card-17", frontSrc: "/images/cards/card-17-a.png", backSrc: "/images/cards/card-17-b.png" },
+      { id: "card-18", frontSrc: "/images/cards/card-18-a.png", backSrc: "/images/cards/card-18-b.png" },
+    ],
+    []
+  );
 
-  // Détecter le montage du composant
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const [index, setIndex] = useState(0);
+  const [dir, setDir] = useState<Dir>(1);
 
-  // Détecter la hauteur de l'écran côté client
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setScreenHeight(window.innerHeight);
-      
-      const handleResize = () => setScreenHeight(window.innerHeight);
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
-    }
-  }, []);
+  // face globale (A/B) conservée entre cartes
+  const [rot, setRot] = useState(0);
+  const flip = (fdir: 1 | -1) => setRot((r) => r + fdir * 180);
 
-  // Ne rien rendre côté serveur
-  if (!mounted) {
-    return (
-      <div className="relative h-screen w-full overflow-hidden bg-gradient-to-b from-blue-900 to-purple-900 flex items-center justify-center">
-        <div className="text-white text-xl">Chargement...</div>
-      </div>
-    );
+  function go(d: Dir) {
+    setDir(d);
+    setIndex((i) => clamp(i + d, cards.length));
   }
 
-  const onTouchStart = (e: React.TouchEvent) => {
-    const touch = e.targetTouches[0];
-    setTouchStartY(touch.clientY);
-    setTouchCurrentY(touch.clientY);
-    setIsDragging(true);
-  };
-
-  const onTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging) return;
-    const touch = e.targetTouches[0];
-    setTouchCurrentY(touch.clientY);
-  };
-
-  const onTouchEnd = () => {
-    if (!isDragging) return;
-
-    const distance = touchStartY - touchCurrentY;
-    const isSwipeUp = distance > minSwipeDistance;
-    const isSwipeDown = distance < -minSwipeDistance;
-
-    if (isSwipeUp && currentIndex < cards.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    } else if (isSwipeDown && currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
-    }
-
-    setIsDragging(false);
-    setTouchStartY(0);
-    setTouchCurrentY(0);
-  };
-
-  // Calcul du déplacement pendant le drag
-  const getDragOffset = () => {
-    if (!isDragging) return 0;
-    const offset = touchStartY - touchCurrentY;
-    
-    // Limiter le drag vers le haut si on est à la dernière carte
-    if (currentIndex >= cards.length - 1 && offset > 0) return 0;
-    // Limiter le drag vers le bas si on est à la première carte
-    if (currentIndex <= 0 && offset < 0) return 0;
-    
-    // Effet élastique aux bords
-    const maxDrag = screenHeight * 0.7;
-    if (Math.abs(offset) > maxDrag) {
-      return offset > 0 ? maxDrag : -maxDrag;
-    }
-    
-    return offset;
-  };
-
-  // Détection du scroll sur desktop
+  // verrouillage scroll (expérience app)
   useEffect(() => {
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      
-      if (e.deltaY > 20 && currentIndex < cards.length - 1) {
-        setCurrentIndex(prev => prev + 1);
-      } else if (e.deltaY < -20 && currentIndex > 0) {
-        setCurrentIndex(prev => prev - 1);
-      }
-    };
+    const html = document.documentElement;
+    const body = document.body;
 
-    const container = containerRef.current;
-    if (container) {
-      container.addEventListener('wheel', handleWheel, { passive: false });
-    }
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevHtmlOverscroll = html.style.overscrollBehavior;
+    const prevBodyOverscroll = body.style.overscrollBehavior;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+    body.style.overscrollBehavior = "none";
 
     return () => {
-      if (container) {
-        container.removeEventListener('wheel', handleWheel);
-      }
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      html.style.overscrollBehavior = prevHtmlOverscroll;
+      body.style.overscrollBehavior = prevBodyOverscroll;
     };
-  }, [currentIndex, cards.length]);
+  }, []);
 
-  const dragOffset = getDragOffset();
+  // wheel desktop => change de carte
+  const wheelAcc = useRef(0);
+  const wheelTimer = useRef<number | null>(null);
+
+  function onWheel(e: React.WheelEvent) {
+    const dy = e.deltaY;
+    if (Math.abs(dy) < 1) return;
+
+    e.preventDefault();
+    wheelAcc.current += dy;
+
+    if (wheelTimer.current) window.clearTimeout(wheelTimer.current);
+    wheelTimer.current = window.setTimeout(() => {
+      wheelAcc.current = 0;
+    }, 220);
+
+    const TH = 110;
+    if (wheelAcc.current > TH) {
+      wheelAcc.current = 0;
+      go(1);
+    } else if (wheelAcc.current < -TH) {
+      wheelAcc.current = 0;
+      go(-1);
+    }
+  }
+
+  const current = cards[index];
+
+  // ✅ précharge la carte suivante et précédente (A+B) pour réduire le chargement
+  useEffect(() => {
+    const preload = (src: string) => {
+      const img = new window.Image();
+      img.decoding = "async";
+      img.src = src;
+    };
+
+    const next = cards[index + 1];
+    const prev = cards[index - 1];
+
+    if (next) {
+      preload(next.frontSrc);
+      preload(next.backSrc);
+    }
+    if (prev) {
+      preload(prev.frontSrc);
+      preload(prev.backSrc);
+    }
+  }, [index, cards]);
+
+  // slide plus lent + ease
+  const variants = {
+    enter: (d: Dir) => ({
+      y: d === 1 ? 96 : -96,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 0 : 2,
+    }),
+    center: { y: 0, opacity: 1, scale: 1, zIndex: 1 },
+    exit: (d: Dir) => ({
+      y: d === 1 ? -56 : 56,
+      opacity: 0,
+      scale: 0.992,
+      zIndex: d === 1 ? 2 : 0,
+    }),
+  } as const;
+
+  // Progression 0..1
+  const progress = cards.length <= 1 ? 1 : index / (cards.length - 1);
 
   return (
-    <div 
-      ref={containerRef}
-      className="relative h-screen w-full overflow-hidden bg-gradient-to-b from-blue-900 to-purple-900"
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-    >
-      {/* Container des cartes empilées */}
-      <div className="absolute inset-0">
-        {cards.map((card, index) => {
-          const isActive = index === currentIndex;
-          const isNext = index === currentIndex + 1;
-          const isPrev = index === currentIndex - 1;
-          
-          // Ne rendre que la carte active, la suivante et la précédente
-          if (!isActive && !isNext && !isPrev) return null;
-          
-          let transform = '';
-          let zIndex = 0;
-          let opacity = 1;
-          let scale = 1;
-          let shadow = '';
-          
-          if (isActive) {
-            // Carte active - se déplace avec le drag
-            zIndex = 20;
-            
-            // Calcul de l'échelle basée sur le drag
-            const dragProgress = Math.abs(dragOffset) / (window.innerHeight * 0.5);
-            scale = 1 - (dragProgress * 0.05); // Légère réduction pendant le drag
-            
-            transform = `translateY(${-dragOffset}px) scale(${scale})`;
-            shadow = '0 25px 50px -12px rgba(0, 0, 0, 0.5)';
-          } else if (isNext) {
-            // Carte suivante - toujours visible en dessous avec un bord
-            zIndex = 10;
-            const basePosition = screenHeight - peekHeight;
-            const dragAdjustment = dragOffset > 0 ? dragOffset : 0;
-            
-            // Effet de parallaxe - la carte suivante monte plus lentement
-            const parallaxFactor = 0.85;
-            const finalPosition = basePosition - (dragAdjustment * parallaxFactor);
-            
-            // Scale légèrement plus petit
-            scale = 0.95;
-            
-            transform = `translateY(${finalPosition}px) scale(${scale})`;
-            shadow = '0 -10px 30px -10px rgba(0, 0, 0, 0.3)';
-          } else if (isPrev) {
-            // Carte précédente - se déplace avec le drag vers le bas
-            zIndex = 10;
-            const basePosition = -screenHeight + peekHeight;
-            const dragAdjustment = dragOffset < 0 ? dragOffset : 0;
-            
-            // Parallaxe inverse
-            const parallaxFactor = 0.85;
-            const finalPosition = basePosition - (dragAdjustment * parallaxFactor);
-            
-            scale = 0.95;
-            
-            transform = `translateY(${finalPosition}px) scale(${scale})`;
-            shadow = '0 10px 30px -10px rgba(0, 0, 0, 0.3)';
-          }
+    <main className="relative min-h-dvh w-full overflow-hidden bg-black">
+      {/* Fond page */}
+      <div className="absolute inset-0 -z-10">
+        <Image src="/images/fond.png" alt="Fond" fill priority className="object-cover" />
+        <div className="absolute inset-0 bg-black/35" />
+      </div>
 
-          return (
-            <div
-              key={card.id}
-              className="absolute top-0 left-0 w-full h-full"
-              style={{
-                transform,
-                zIndex,
-                opacity,
-                boxShadow: shadow,
-                transition: isDragging 
-                  ? 'box-shadow 0.2s ease-out' 
-                  : 'all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)',
-                willChange: 'transform',
-              }}
-            >
-              <div className="h-full w-full flex items-center justify-center p-4 md:p-8">
+      <div className="min-h-dvh p-4 flex items-center justify-center">
+        <div className="w-full max-w-sm">
+          <div className="relative h-[520px] w-full" onWheel={onWheel}>
+            <AnimatePresence initial={false} custom={dir} mode="popLayout">
+              <motion.div
+                key={current.id}
+                custom={dir}
+                variants={variants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+                className="absolute inset-0"
+              >
                 <CardFlip
-                  imageA={card.imageA}
-                  imageB={card.imageB}
-                  isActive={isActive}
+                  frontSrc={current.frontSrc}
+                  backSrc={current.backSrc}
+                  rot={rot}
+                  onFlip={flip}
+                  onPrev={() => go(-1)}
+                  onNext={() => go(1)}
+                  priority
                 />
-              </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          {/* Barre de progression */}
+          <div className="mt-4 flex justify-center">
+            <div className="w-[220px] h-[3px] rounded-full bg-white/25 overflow-hidden">
+              <motion.div
+                className="h-full bg-white"
+                style={{ transformOrigin: "0% 50%" }}
+                animate={{ scaleX: progress }}
+                transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+              />
             </div>
-          );
-        })}
-      </div>
-
-      {/* Indicateur de progression */}
-      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex gap-2 z-30 pointer-events-none">
-        {cards.map((_, index) => (
-          <div
-            key={index}
-            className={`h-2 rounded-full transition-all duration-300 ${
-              index === currentIndex 
-                ? 'bg-white w-8' 
-                : 'bg-white/30 w-2'
-            }`}
-          />
-        ))}
-      </div>
-
-      {/* Instructions */}
-      {currentIndex === 0 && !isDragging && (
-        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 pointer-events-none">
-          <div className="bg-black/70 text-white px-6 py-3 rounded-full text-sm backdrop-blur-sm animate-bounce">
-            ↑ Swipe vers le haut pour la carte suivante
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    </main>
   );
 }
+
