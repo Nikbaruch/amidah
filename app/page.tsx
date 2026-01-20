@@ -23,10 +23,37 @@ export default function Home() {
   const [touchStartY, setTouchStartY] = useState(0);
   const [touchCurrentY, setTouchCurrentY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [screenHeight, setScreenHeight] = useState(800); // Valeur par défaut
+  const [mounted, setMounted] = useState(false); // Nouveau state
   const containerRef = useRef<HTMLDivElement>(null);
 
   const minSwipeDistance = 80;
   const peekHeight = 60; // Hauteur du bord visible de la carte suivante
+
+  // Détecter le montage du composant
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Détecter la hauteur de l'écran côté client
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setScreenHeight(window.innerHeight);
+      
+      const handleResize = () => setScreenHeight(window.innerHeight);
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+  }, []);
+
+  // Ne rien rendre côté serveur
+  if (!mounted) {
+    return (
+      <div className="relative h-screen w-full overflow-hidden bg-gradient-to-b from-blue-900 to-purple-900 flex items-center justify-center">
+        <div className="text-white text-xl">Chargement...</div>
+      </div>
+    );
+  }
 
   const onTouchStart = (e: React.TouchEvent) => {
     const touch = e.targetTouches[0];
@@ -70,7 +97,7 @@ export default function Home() {
     if (currentIndex <= 0 && offset < 0) return 0;
     
     // Effet élastique aux bords
-    const maxDrag = window.innerHeight * 0.7;
+    const maxDrag = screenHeight * 0.7;
     if (Math.abs(offset) > maxDrag) {
       return offset > 0 ? maxDrag : -maxDrag;
     }
@@ -141,7 +168,7 @@ export default function Home() {
           } else if (isNext) {
             // Carte suivante - toujours visible en dessous avec un bord
             zIndex = 10;
-            const basePosition = window.innerHeight - peekHeight;
+            const basePosition = screenHeight - peekHeight;
             const dragAdjustment = dragOffset > 0 ? dragOffset : 0;
             
             // Effet de parallaxe - la carte suivante monte plus lentement
@@ -156,7 +183,7 @@ export default function Home() {
           } else if (isPrev) {
             // Carte précédente - se déplace avec le drag vers le bas
             zIndex = 10;
-            const basePosition = -window.innerHeight + peekHeight;
+            const basePosition = -screenHeight + peekHeight;
             const dragAdjustment = dragOffset < 0 ? dragOffset : 0;
             
             // Parallaxe inverse
